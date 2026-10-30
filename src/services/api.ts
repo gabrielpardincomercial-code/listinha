@@ -2,6 +2,14 @@ import { ListItem, ShoppingList, User } from '../types';
 
 const API_BASE = '/api/sync.php';
 
+export interface AuthResponse {
+  success: boolean;
+  error?: string;
+  user?: User;
+  lists?: ShoppingList[];
+  items?: ListItem[];
+}
+
 export async function getServerConfig(): Promise<{ google_client_id: string }> {
   try {
     const res = await fetch(`${API_BASE}?action=get_config`);
@@ -22,6 +30,110 @@ export async function saveServerConfig(googleClientId: string): Promise<boolean>
     return res.ok;
   } catch {
     return false;
+  }
+}
+
+export async function registerUser(
+  name: string,
+  email: string,
+  password: string,
+  inviteListId?: string | null
+): Promise<AuthResponse> {
+  try {
+    const res = await fetch(`${API_BASE}?action=register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        email,
+        password,
+        invite_list_id: inviteListId || null,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || 'Erro ao criar conta.' };
+    }
+    return data;
+  } catch {
+    return { success: false, error: 'Erro de conexão com o servidor.' };
+  }
+}
+
+export async function loginUser(
+  email: string,
+  password: string,
+  inviteListId?: string | null
+): Promise<AuthResponse> {
+  try {
+    const res = await fetch(`${API_BASE}?action=login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email,
+        password,
+        invite_list_id: inviteListId || null,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || 'E-mail ou senha inválidos.' };
+    }
+    return data;
+  } catch {
+    return { success: false, error: 'Erro de conexão com o servidor.' };
+  }
+}
+
+export async function googleOAuthLogin(
+  accessToken: string,
+  inviteListId?: string | null
+): Promise<AuthResponse> {
+  try {
+    const res = await fetch(`${API_BASE}?action=google_oauth_login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        access_token: accessToken,
+        invite_list_id: inviteListId || null,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || 'Falha na validação Google OAuth.' };
+    }
+    return data;
+  } catch {
+    return { success: false, error: 'Erro ao validar token Google no servidor.' };
+  }
+}
+
+export async function verifyUserSession(
+  user: User,
+  inviteListId?: string | null
+): Promise<{
+  success: boolean;
+  valid: boolean;
+  user?: User;
+  lists?: ShoppingList[];
+  items?: ListItem[];
+}> {
+  try {
+    const res = await fetch(`${API_BASE}?action=verify_session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user,
+        invite_list_id: inviteListId || null,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.valid) {
+      return { success: false, valid: false };
+    }
+    return data;
+  } catch {
+    return { success: false, valid: true };
   }
 }
 

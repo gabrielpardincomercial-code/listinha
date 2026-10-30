@@ -13,7 +13,7 @@ import {
   createDefaultUserList,
 } from './services/storage';
 import { realtime } from './services/realtime';
-import { userCloudLogin, saveCloudList } from './services/api';
+import { verifyUserSession, saveCloudList } from './services/api';
 import { CATEGORIES } from './utils/categories';
 import { sound } from './utils/audio';
 
@@ -90,39 +90,41 @@ export const App: React.FC = () => {
     }
   }, [activeListId, currentUser]);
 
-  // Sync user's local lists to cloud & fetch all shared lists for this user's email
-  const syncUserSessionWithCloud = async (user: User, targetInviteId?: string | null) => {
-    // 1. Ensure any local lists & items created by this user are saved on the server first
-    const localLists = getStoredLists(user);
-    const localItems = getStoredItems();
-    for (const l of localLists) {
-      const lItems = localItems.filter((i) => i.listId === l.id);
-      await saveCloudList(l, lItems);
-    }
-
-    // 2. Call userCloudLogin to link email, join invite list (if any), and fetch all lists shared with this email
-    const res = await userCloudLogin(user, targetInviteId);
-    if (res.success && Array.isArray(res.lists) && res.lists.length > 0) {
-      setLists(res.lists);
-      saveStoredLists(res.lists);
-      setItems(res.items || []);
-      saveStoredItems(res.items || []);
-
-      if (targetInviteId && res.lists.some((l) => l.id === targetInviteId)) {
-        setActiveListId(targetInviteId);
-        try {
-          sessionStorage.removeItem('listinha_pending_invite');
-        } catch {}
-      } else if (!activeListId || !res.lists.some((l) => l.id === activeListId)) {
-        setActiveListId(res.lists[0].id);
-      }
-    }
+  // Logout handler
+  const handleLogout = () => {
+    realtime.stopPolling();
+    logoutAndClearSession();
+    setCurrentUser(null);
+    setLists([]);
+    setItems([]);
+    setActiveListId('');
   };
 
-  // When already logged in on mount, sync with cloud immediately
+  // Verify existing user session token with server on mount
   useEffect(() => {
     if (currentUser) {
-      syncUserSessionWithCloud(currentUser, inviteListId);
+      verifyUserSession(currentUser, inviteListId).then((res) => {
+        if (!res.valid) {
+          // Session token is invalid or missing in SQLite -> force logout
+          handleLogout();
+          return;
+        }
+        if (res.lists && res.lists.length > 0) {
+          setLists(res.lists);
+          saveStoredLists(res.lists);
+          setItems(res.items || []);
+          saveStoredItems(res.items || []);
+
+          if (inviteListId && res.lists.some((l) => l.id === inviteListId)) {
+            setActiveListId(inviteListId);
+            try {
+              sessionStorage.removeItem('listinha_pending_invite');
+            } catch {}
+          } else if (!activeListId || !res.lists.some((l) => l.id === activeListId)) {
+            setActiveListId(res.lists[0].id);
+          }
+        }
+      });
     }
   }, []);
 
@@ -202,26 +204,36 @@ export const App: React.FC = () => {
     return unsub;
   }, []);
 
-  // Login handler
-  const handleLogin = async (user: User) => {
-    setCurrentUser(user);
-    saveStoredUser(user);
-    await syncUserSessionWithCloud(user, inviteListId);
-  };
+  // Login success handler (receives verified user + sessionToken + cloud lists & items)
+  const handleLoginSuccess = (data: {
+    user: User;
+    lists: ShoppingList[];
+    items: ListItem[];
+  }) => {
+    setCurrentUser(data.user);
+    saveStoredUser(data.user);
 
-  // Logout handler
-  const handleLogout = () => {
-    realtime.stopPolling();
-    logoutAndClearSession();
-    setCurrentUser(null);
-    setLists([]);
-    setItems([]);
-    setActiveListId('');
+    const nextLists =
+      data.lists && data.lists.length > 0 ? data.lists : [createDefaultUserList(data.user)];
+    setLists(nextLists);
+    saveStoredLists(nextLists);
+
+    setItems(data.items || []);
+    saveStoredItems(data.items || []);
+
+    if (inviteListId && nextLists.some((l) => l.id === inviteListId)) {
+      setActiveListId(inviteListId);
+      try {
+        sessionStorage.removeItem('listinha_pending_invite');
+      } catch {}
+    } else {
+      setActiveListId(nextLists[0].id);
+    }
   };
 
   // If user is not logged in, show the Login Screen Gate
   if (!currentUser) {
-    return <LoginScreen onLogin={handleLogin} inviteListId={inviteListId} />;
+    return <LoginScreen onLoginSuccess={handleLoginSuccess} inviteListId={inviteListId} />;
   }
 
   // Current list

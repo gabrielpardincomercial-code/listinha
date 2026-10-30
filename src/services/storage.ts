@@ -8,7 +8,14 @@ export function getStoredUser(): User | null {
   if (typeof window === 'undefined') return null;
   try {
     const data = localStorage.getItem(CURRENT_USER_KEY);
-    return data ? JSON.parse(data) : null;
+    if (!data) return null;
+    const parsed: User = JSON.parse(data);
+    // Require a valid cryptographic sessionToken issued by the server
+    if (!parsed || !parsed.email || !parsed.sessionToken) {
+      localStorage.removeItem(CURRENT_USER_KEY);
+      return null;
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -17,7 +24,7 @@ export function getStoredUser(): User | null {
 export function saveStoredUser(user: User | null) {
   if (typeof window === 'undefined') return;
   try {
-    if (user) {
+    if (user && user.sessionToken) {
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
     } else {
       localStorage.removeItem(CURRENT_USER_KEY);
@@ -49,7 +56,6 @@ export function getStoredLists(user?: User | null): ShoppingList[] {
     }
   } catch {}
 
-  // If user is provided, create clean initial list for them
   if (user) {
     const initial = [createDefaultUserList(user)];
     saveStoredLists(initial);
@@ -75,7 +81,7 @@ export function getStoredItems(): ListItem[] {
       if (Array.isArray(parsed)) return parsed;
     }
   } catch {}
-  return []; // Clean empty items list by default!
+  return [];
 }
 
 export function saveStoredItems(items: ListItem[]) {
@@ -91,5 +97,6 @@ export function logoutAndClearSession() {
     localStorage.removeItem(CURRENT_USER_KEY);
     localStorage.removeItem(LISTS_KEY);
     localStorage.removeItem(ITEMS_KEY);
+    localStorage.removeItem('listinha_real_device_accounts');
   } catch {}
 }

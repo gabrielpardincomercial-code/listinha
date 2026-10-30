@@ -2,7 +2,7 @@
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type');
+header('Access-Control-Allow-Headers: Content-Type, Authorization');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
@@ -26,6 +26,18 @@ function getDb() {
         CREATE TABLE IF NOT EXISTS config (
             key TEXT PRIMARY KEY,
             value TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT,
+            avatar TEXT,
+            google_sub TEXT,
+            session_token TEXT,
+            created_at INTEGER,
+            updated_at INTEGER
         );
 
         CREATE TABLE IF NOT EXISTS lists (
@@ -62,6 +74,7 @@ function getDb() {
             updated_at INTEGER
         );
 
+        CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
         CREATE INDEX IF NOT EXISTS idx_items_list ON items(list_id);
         CREATE INDEX IF NOT EXISTS idx_items_updated ON items(updated_at);
     ");
@@ -147,6 +160,108 @@ function getListsForUser($db, $userId, $userEmail) {
     return $matchedLists;
 }
 
+function syncUserListsAndInvite($db, $user, $inviteListId = null) {
+    $cleanEmail = strtolower(trim($user['email']));
+    $now = time() * 1000;
+    $publicUser = [
+        'id' => $user['id'],
+        'name' => $user['name'],
+        'email' => $cleanEmail,
+        'avatar' => $user['avatar'],
+        'color' => $user['color'] ?? '#0A84FF',
+        'isGoogleAuth' => !empty($user['isGoogleAuth']),
+    ];
+
+    if ($inviteListId) {
+        $stmtInvite = $db->prepare("SELECT * FROM lists WHERE id = ?");
+        $stmtInvite->execute([$inviteListId]);
+        $invRow = $stmtInvite->fetch(PDO::FETCH_ASSOC);
+        if ($invRow) {
+            $collabs = json_decode($invRow['collaborators_json'] ?: '[]', true);
+            $found = false;
+            foreach ($collabs as &$c) {
+                if ($c['id'] === $publicUser['id'] || strtolower(trim($c['email'] ?? '')) === $cleanEmail) {
+                    $c = $publicUser;
+                    $found = true;
+                    break;
+                }
+            }
+            if (!$found) {
+                $collabs[] = $publicUser;
+            }
+            $stmtUpd = $db->prepare("UPDATE lists SET collaborators_json = ?, updated_at = ? WHERE id = ?");
+            $stmtUpd->execute([json_encode($collabs), $now, $inviteListId]);
+        }
+    }
+
+    // Update user profile in any list where their email was pre-added
+    $stmtAll = $db->query("SELECT * FROM lists");
+    $allRows = $stmtAll->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($allRows as $r) {
+        $collabs = json_decode($r['collaborators_json'] ?: '[]', true);
+        $changed = false;
+        if (is_array($collabs)) {
+            foreach ($collabs as &$c) {
+                if (strtolower(trim($c['email'] ?? '')) === $cleanEmail) {
+                    if ($c['id'] !== $publicUser['id'] || $c['name'] !== $publicUser['name'] || $c['avatar'] !== $publicUser['avatar']) {
+                        $c['id'] = $publicUser['id'];
+                        $c['name'] = $publicUser['name'];
+                        $c['avatar'] = $publicUser['avatar'];
+                        $changed = true;
+                    }
+                }
+            }
+        }
+        if ($changed) {
+            $stmtUpd = $db->prepare("UPDATE lists SET collaborators_json = ?, updated_at = ? WHERE id = ?");
+            $stmtUpd->execute([json_encode($collabs), $now, $r['id']]);
+        }
+    }
+
+    $userLists = getListsForUser($db, $publicUser['id'], $cleanEmail);
+
+    if (empty($userLists)) {
+        $newListId = 'list_familia_' . preg_replace('/[^a-zA-Z0-9]/', '_', $cleanEmail);
+        $defaultList = [
+            'id' => $newListId,
+            'title' => 'Lista da Família',
+            'type' => 'family',
+            'emoji' => '🏠',
+            'description' => 'Compras compartilhadas da família',
+            'ownerId' => $publicUser['id'],
+            'collaborators' => [$publicUser],
+            'eventDetails' => null,
+            'createdAt' => $now,
+            'updatedAt' => $now,
+        ];
+
+        $stmtIns = $db->prepare("
+            INSERT INTO lists (id, title, type, emoji, description, owner_id, collaborators_json, event_details_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO NOTHING
+        ");
+        $stmtIns->execute([
+            $defaultList['id'],
+            $defaultList['title'],
+            $defaultList['type'],
+            $defaultList['emoji'],
+            $defaultList['description'],
+            $defaultList['ownerId'],
+            json_encode($defaultList['collaborators']),
+            null,
+            $now,
+            $now
+        ]);
+
+        $userLists = [$defaultList];
+    }
+
+    $listIds = array_map(function($l) { return $l['id']; }, $userLists);
+    $items = getItemsForListIds($db, $listIds);
+
+    return [$userLists, $items];
+}
+
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 $input = json_decode(file_get_contents('php://input'), true) ?? $_POST;
 
@@ -172,114 +287,255 @@ try {
         exit();
     }
 
-    // 1. USER LOGIN & FETCH ALL SHARED LISTS FOR THIS EMAIL/USER
-    if ($action === 'user_login') {
-        $user = $input['user'] ?? null;
+    // 1A. REGISTER ACCOUNT (Criar Conta com E-mail e Senha criptografada)
+    if ($action === 'register') {
+        $name = trim($input['name'] ?? '');
+        $email = strtolower(trim($input['email'] ?? ''));
+        $password = $input['password'] ?? '';
         $inviteListId = $input['invite_list_id'] ?? null;
 
-        if (!$user || empty($user['email'])) {
-            echo json_encode(['error' => 'valid user with email required']);
+        if (strlen($name) < 2) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Digite seu nome completo.']);
+            exit();
+        }
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Formato de e-mail inválido.']);
+            exit();
+        }
+        if (strlen($password) < 6) {
+            http_response_code(400);
+            echo json_encode(['error' => 'A senha deve ter pelo menos 6 caracteres.']);
             exit();
         }
 
-        $cleanEmail = strtolower(trim($user['email']));
+        // Check if email already registered
+        $stmtCheck = $db->prepare("SELECT id, password_hash FROM users WHERE email = ?");
+        $stmtCheck->execute([$email]);
+        $existing = $stmtCheck->fetch(PDO::FETCH_ASSOC);
+
+        if ($existing && !empty($existing['password_hash'])) {
+            http_response_code(409);
+            echo json_encode(['error' => 'Este e-mail já possui conta cadastrada. Use a aba "Entrar" com sua senha.']);
+            exit();
+        }
+
         $now = time() * 1000;
+        $userId = $existing ? $existing['id'] : ('usr_' . preg_replace('/[^a-zA-Z0-9]/', '_', $email));
+        $passwordHash = password_hash($password, PASSWORD_BCRYPT);
+        $sessionToken = bin2hex(random_bytes(32));
+        $avatar = 'https://ui-avatars.com/api/?name=' . urlencode($name) . '&background=0A84FF&color=fff&size=256&bold=true';
 
-        // If user came via invite_list_id, add them to that list first
-        if ($inviteListId) {
-            $stmtInvite = $db->prepare("SELECT * FROM lists WHERE id = ?");
-            $stmtInvite->execute([$inviteListId]);
-            $invRow = $stmtInvite->fetch(PDO::FETCH_ASSOC);
-            if ($invRow) {
-                $collabs = json_decode($invRow['collaborators_json'] ?: '[]', true);
-                $found = false;
-                foreach ($collabs as &$c) {
-                    if ($c['id'] === $user['id'] || strtolower(trim($c['email'] ?? '')) === $cleanEmail) {
-                        $c = $user;
-                        $found = true;
-                        break;
-                    }
-                }
-                if (!$found) {
-                    $collabs[] = $user;
-                }
-                $stmtUpd = $db->prepare("UPDATE lists SET collaborators_json = ?, updated_at = ? WHERE id = ?");
-                $stmtUpd->execute([json_encode($collabs), $now, $inviteListId]);
-            }
-        }
+        $stmtIns = $db->prepare("
+            INSERT INTO users (id, name, email, password_hash, avatar, session_token, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(email) DO UPDATE SET
+                name = excluded.name,
+                password_hash = excluded.password_hash,
+                session_token = excluded.session_token,
+                updated_at = excluded.updated_at
+        ");
+        $stmtIns->execute([$userId, $name, $email, $passwordHash, $avatar, $sessionToken, $now, $now]);
 
-        // Also update user profile in any list where their email was pre-added by a family member
-        $stmtAll = $db->query("SELECT * FROM lists");
-        $allRows = $stmtAll->fetchAll(PDO::FETCH_ASSOC);
-        foreach ($allRows as $r) {
-            $collabs = json_decode($r['collaborators_json'] ?: '[]', true);
-            $changed = false;
-            if (is_array($collabs)) {
-                foreach ($collabs as &$c) {
-                    if (strtolower(trim($c['email'] ?? '')) === $cleanEmail) {
-                        if ($c['id'] !== $user['id'] || ($user['avatar'] && $c['avatar'] !== $user['avatar'])) {
-                            $c['id'] = $user['id'];
-                            $c['name'] = $user['name'];
-                            $c['avatar'] = $user['avatar'];
-                            $changed = true;
-                        }
-                    }
-                }
-            }
-            if ($changed) {
-                $stmtUpd = $db->prepare("UPDATE lists SET collaborators_json = ?, updated_at = ? WHERE id = ?");
-                $stmtUpd->execute([json_encode($collabs), $now, $r['id']]);
-            }
-        }
+        $userObj = [
+            'id' => $userId,
+            'name' => $name,
+            'email' => $email,
+            'avatar' => $avatar,
+            'color' => '#0A84FF',
+            'isGoogleAuth' => false,
+            'sessionToken' => $sessionToken,
+        ];
 
-        // Now get all lists for this user
-        $userLists = getListsForUser($db, $user['id'], $cleanEmail);
-
-        // If user has no lists at all, create their default "Lista da Família"
-        if (empty($userLists)) {
-            $newListId = 'list_familia_' . preg_replace('/[^a-zA-Z0-9]/', '_', $cleanEmail);
-            $defaultList = [
-                'id' => $newListId,
-                'title' => 'Lista da Família',
-                'type' => 'family',
-                'emoji' => '🏠',
-                'description' => 'Compras compartilhadas da família',
-                'ownerId' => $user['id'],
-                'collaborators' => [$user],
-                'eventDetails' => null,
-                'createdAt' => $now,
-                'updatedAt' => $now,
-            ];
-
-            $stmtIns = $db->prepare("
-                INSERT INTO lists (id, title, type, emoji, description, owner_id, collaborators_json, event_details_json, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO NOTHING
-            ");
-            $stmtIns->execute([
-                $defaultList['id'],
-                $defaultList['title'],
-                $defaultList['type'],
-                $defaultList['emoji'],
-                $defaultList['description'],
-                $defaultList['ownerId'],
-                json_encode($defaultList['collaborators']),
-                null,
-                $now,
-                $now
-            ]);
-
-            $userLists = [$defaultList];
-        }
-
-        $listIds = array_map(function($l) { return $l['id']; }, $userLists);
-        $items = getItemsForListIds($db, $listIds);
+        list($userLists, $items) = syncUserListsAndInvite($db, $userObj, $inviteListId);
 
         echo json_encode([
             'success' => true,
+            'user' => $userObj,
             'lists' => $userLists,
             'items' => $items,
             'server_time' => $now
+        ]);
+        exit();
+    }
+
+    // 1B. LOGIN WITH EMAIL & PASSWORD (Entrar com verificação de senha bcrypt)
+    if ($action === 'login') {
+        $email = strtolower(trim($input['email'] ?? ''));
+        $password = $input['password'] ?? '';
+        $inviteListId = $input['invite_list_id'] ?? null;
+
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL) || empty($password)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Informe seu e-mail e sua senha.']);
+            exit();
+        }
+
+        $stmt = $db->prepare("SELECT * FROM users WHERE email = ?");
+        $stmt->execute([$email]);
+        $userRow = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$userRow) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Nenhuma conta encontrada com este e-mail. Clique na aba "Criar Conta" primeiro.']);
+            exit();
+        }
+
+        if (empty($userRow['password_hash']) || !password_verify($password, $userRow['password_hash'])) {
+            http_response_code(401);
+            echo json_encode(['error' => 'Senha incorreta para este e-mail.']);
+            exit();
+        }
+
+        $now = time() * 1000;
+        $sessionToken = bin2hex(random_bytes(32));
+        $stmtUpd = $db->prepare("UPDATE users SET session_token = ?, updated_at = ? WHERE id = ?");
+        $stmtUpd->execute([$sessionToken, $now, $userRow['id']]);
+
+        $userObj = [
+            'id' => $userRow['id'],
+            'name' => $userRow['name'],
+            'email' => $userRow['email'],
+            'avatar' => $userRow['avatar'],
+            'color' => '#0A84FF',
+            'isGoogleAuth' => !empty($userRow['google_sub']),
+            'sessionToken' => $sessionToken,
+        ];
+
+        list($userLists, $items) = syncUserListsAndInvite($db, $userObj, $inviteListId);
+
+        echo json_encode([
+            'success' => true,
+            'user' => $userObj,
+            'lists' => $userLists,
+            'items' => $items,
+            'server_time' => $now
+        ]);
+        exit();
+    }
+
+    // 1C. OFFICIAL GOOGLE OAUTH 2.0 LOGIN (Validado servidor-a-servidor com o Google)
+    if ($action === 'google_oauth_login') {
+        $accessToken = trim($input['access_token'] ?? '');
+        $inviteListId = $input['invite_list_id'] ?? null;
+
+        if (empty($accessToken)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Token de acesso do Google ausente.']);
+            exit();
+        }
+
+        // Verify token directly against Google's official userinfo endpoint
+        $ch = curl_init('https://www.googleapis.com/oauth2/v3/userinfo');
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $accessToken]);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        $resp = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($httpCode !== 200 || !$resp) {
+            http_response_code(401);
+            echo json_encode(['error' => 'Falha ao validar token junto aos servidores do Google.']);
+            exit();
+        }
+
+        $googleProfile = json_decode($resp, true);
+        if (empty($googleProfile['email']) || empty($googleProfile['email_verified'])) {
+            http_response_code(401);
+            echo json_encode(['error' => 'A conta do Google não possui um e-mail verificado.']);
+            exit();
+        }
+
+        $email = strtolower(trim($googleProfile['email']));
+        $name = trim($googleProfile['name'] ?? $googleProfile['given_name'] ?? explode('@', $email)[0]);
+        $avatar = $googleProfile['picture'] ?? ('https://ui-avatars.com/api/?name=' . urlencode($name) . '&background=0A84FF&color=fff&size=256&bold=true');
+        $googleSub = $googleProfile['sub'] ?? '';
+        $now = time() * 1000;
+        $sessionToken = bin2hex(random_bytes(32));
+        $userId = 'usr_' . preg_replace('/[^a-zA-Z0-9]/', '_', $email);
+
+        $stmtIns = $db->prepare("
+            INSERT INTO users (id, name, email, avatar, google_sub, session_token, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(email) DO UPDATE SET
+                name = excluded.name,
+                avatar = excluded.avatar,
+                google_sub = excluded.google_sub,
+                session_token = excluded.session_token,
+                updated_at = excluded.updated_at
+        ");
+        $stmtIns->execute([$userId, $name, $email, $avatar, $googleSub, $sessionToken, $now, $now]);
+
+        // Fetch actual id in case user existed before
+        $stmtUser = $db->prepare("SELECT * FROM users WHERE email = ?");
+        $stmtUser->execute([$email]);
+        $uRow = $stmtUser->fetch(PDO::FETCH_ASSOC);
+
+        $userObj = [
+            'id' => $uRow['id'],
+            'name' => $uRow['name'],
+            'email' => $uRow['email'],
+            'avatar' => $uRow['avatar'],
+            'color' => '#0A84FF',
+            'isGoogleAuth' => true,
+            'sessionToken' => $sessionToken,
+        ];
+
+        list($userLists, $items) = syncUserListsAndInvite($db, $userObj, $inviteListId);
+
+        echo json_encode([
+            'success' => true,
+            'user' => $userObj,
+            'lists' => $userLists,
+            'items' => $items,
+            'server_time' => $now
+        ]);
+        exit();
+    }
+
+    // 1D. VERIFY EXISTING SESSION TOKEN (Impede acesso sem autenticação real)
+    if ($action === 'verify_session') {
+        $user = $input['user'] ?? null;
+        $inviteListId = $input['invite_list_id'] ?? null;
+
+        if (!$user || empty($user['email']) || empty($user['sessionToken'])) {
+            http_response_code(401);
+            echo json_encode(['valid' => false, 'error' => 'Sessão inválida ou expirada. Faça login novamente.']);
+            exit();
+        }
+
+        $email = strtolower(trim($user['email']));
+        $stmt = $db->prepare("SELECT * FROM users WHERE email = ? AND session_token = ?");
+        $stmt->execute([$email, $user['sessionToken']]);
+        $userRow = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$userRow) {
+            http_response_code(401);
+            echo json_encode(['valid' => false, 'error' => 'Sessão expirada. Faça login novamente.']);
+            exit();
+        }
+
+        $userObj = [
+            'id' => $userRow['id'],
+            'name' => $userRow['name'],
+            'email' => $userRow['email'],
+            'avatar' => $userRow['avatar'],
+            'color' => '#0A84FF',
+            'isGoogleAuth' => !empty($userRow['google_sub']),
+            'sessionToken' => $userRow['session_token'],
+        ];
+
+        list($userLists, $items) = syncUserListsAndInvite($db, $userObj, $inviteListId);
+
+        echo json_encode([
+            'valid' => true,
+            'success' => true,
+            'user' => $userObj,
+            'lists' => $userLists,
+            'items' => $items,
+            'server_time' => time() * 1000
         ]);
         exit();
     }
@@ -344,7 +600,6 @@ try {
             $now
         ]);
 
-        // If items array was provided, ensure all are saved in SQLite
         if (is_array($items)) {
             $stmtItem = $db->prepare("
                 INSERT INTO items (
@@ -396,88 +651,7 @@ try {
         exit();
     }
 
-    // 4. JOIN LIST (When family/friend opens shared link)
-    if ($action === 'join_list') {
-        $listId = $input['list_id'] ?? '';
-        $user = $input['user'] ?? null;
-
-        if (!$listId || !$user) {
-            echo json_encode(['error' => 'list_id and user required']);
-            exit();
-        }
-
-        $stmt = $db->prepare("SELECT * FROM lists WHERE id = ?");
-        $stmt->execute([$listId]);
-        $listRow = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if (!$listRow) {
-            echo json_encode(['exists' => false, 'error' => 'List not found']);
-            exit();
-        }
-
-        $collaborators = json_decode($listRow['collaborators_json'] ?: '[]', true);
-        $cleanEmail = strtolower(trim($user['email'] ?? ''));
-        $userExists = false;
-
-        foreach ($collaborators as &$c) {
-            if ($c['id'] === $user['id'] || ($cleanEmail && strtolower(trim($c['email'] ?? '')) === $cleanEmail)) {
-                $c = $user;
-                $userExists = true;
-                break;
-            }
-        }
-
-        $now = time() * 1000;
-        if (!$userExists) {
-            $collaborators[] = $user;
-        }
-
-        // Also add to eventDetails.participants if temporary list
-        $eventDetails = json_decode($listRow['event_details_json'] ?: 'null', true);
-        if (is_array($eventDetails) && isset($eventDetails['participants']) && is_array($eventDetails['participants'])) {
-            $pExists = false;
-            foreach ($eventDetails['participants'] as &$p) {
-                if ($p['id'] === $user['id'] || ($cleanEmail && strtolower(trim($p['email'] ?? '')) === $cleanEmail)) {
-                    $p = $user;
-                    $pExists = true;
-                    break;
-                }
-            }
-            if (!$pExists) {
-                $eventDetails['participants'][] = $user;
-            }
-        }
-
-        $stmtUpdate = $db->prepare("UPDATE lists SET collaborators_json = ?, event_details_json = ?, updated_at = ? WHERE id = ?");
-        $stmtUpdate->execute([
-            json_encode($collaborators),
-            $eventDetails ? json_encode($eventDetails) : null,
-            $now,
-            $listId
-        ]);
-
-        // Return all lists for this user + items
-        $userLists = getListsForUser($db, $user['id'], $cleanEmail);
-        $listIds = array_map(function($l) { return $l['id']; }, $userLists);
-        if (!in_array($listId, $listIds)) {
-            $listIds[] = $listId;
-        }
-        $items = getItemsForListIds($db, $listIds);
-
-        $joinedList = formatListRow($listRow);
-        $joinedList['collaborators'] = $collaborators;
-        $joinedList['eventDetails'] = $eventDetails;
-
-        echo json_encode([
-            'exists' => true,
-            'list' => $joinedList,
-            'lists' => $userLists,
-            'items' => $items
-        ]);
-        exit();
-    }
-
-    // 5. SAVE OR UPDATE ITEM
+    // 4. SAVE OR UPDATE ITEM
     if ($action === 'save_item') {
         $item = $input['item'] ?? null;
         if (!$item || empty($item['id']) || empty($item['listId'])) {
@@ -534,7 +708,7 @@ try {
         exit();
     }
 
-    // 6. TOGGLE ITEM
+    // 5. TOGGLE ITEM
     if ($action === 'toggle_item') {
         $itemId = $input['item_id'] ?? '';
         $completed = !empty($input['completed']) ? 1 : 0;
@@ -562,7 +736,7 @@ try {
         exit();
     }
 
-    // 7. DELETE ITEM
+    // 6. DELETE ITEM
     if ($action === 'delete_item') {
         $itemId = $input['item_id'] ?? '';
         $stmt = $db->prepare("DELETE FROM items WHERE id = ?");
@@ -571,7 +745,7 @@ try {
         exit();
     }
 
-    // 8. CLEAR COMPLETED ITEMS
+    // 7. CLEAR COMPLETED ITEMS
     if ($action === 'clear_completed') {
         $listId = $input['list_id'] ?? '';
         $stmt = $db->prepare("DELETE FROM items WHERE list_id = ? AND completed = 1");
@@ -580,7 +754,7 @@ try {
         exit();
     }
 
-    // 9. REALTIME POLL (Returns all lists & items for user + current listId)
+    // 8. REALTIME POLL
     if ($action === 'poll') {
         $listId = $_GET['list_id'] ?? '';
         $userId = $_GET['user_id'] ?? '';
@@ -591,7 +765,6 @@ try {
             $userLists = getListsForUser($db, $userId, $userEmail);
         }
 
-        // Also ensure $listId is included if specified
         if ($listId) {
             $foundActive = false;
             foreach ($userLists as $ul) {

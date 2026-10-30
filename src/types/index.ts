@@ -9,6 +9,7 @@ export interface User {
   avatar: string;
   color?: string;
   isGoogleAuth?: boolean;
+  sessionToken?: string;
 }
 
 export interface Category {

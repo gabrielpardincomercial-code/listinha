@@ -1,33 +1,45 @@
 import React, { useState, useEffect } from 'react';
 import {
   Sparkles,
-  ShieldCheck,
   ArrowRight,
-  Users,
-  Scale,
-  Check,
   Settings,
   Mail,
   User as UserIcon,
+  Lock,
+  Eye,
+  EyeOff,
   ExternalLink,
   X,
+  ShieldCheck,
 } from 'lucide-react';
-import { User } from '../types';
-import { getServerConfig, saveServerConfig } from '../services/api';
+import { ListItem, ShoppingList, User } from '../types';
+import {
+  getServerConfig,
+  saveServerConfig,
+  loginUser,
+  registerUser,
+  googleOAuthLogin,
+} from '../services/api';
 import { sound } from '../utils/audio';
 
 interface LoginScreenProps {
-  onLogin: (user: User) => void;
+  onLoginSuccess: (data: {
+    user: User;
+    lists: ShoppingList[];
+    items: ListItem[];
+  }) => void;
   inviteListId?: string | null;
 }
 
-const DEVICE_ACCOUNTS_KEY = 'listinha_real_device_accounts';
-
-export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, inviteListId }) => {
+export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, inviteListId }) => {
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Real Google OAuth Client ID state (stored on server)
   const [googleClientId, setGoogleClientId] = useState<string>('');
@@ -36,17 +48,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, inviteListId 
   const [savingClientId, setSavingClientId] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
-  // Real accounts previously used on THIS specific device only (never pre-populated with fake accounts)
-  const [deviceAccounts, setDeviceAccounts] = useState<User[]>(() => {
-    try {
-      const raw = localStorage.getItem(DEVICE_ACCOUNTS_KEY);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  });
-
   useEffect(() => {
+    // Clean up any legacy unverified device accounts
+    try {
+      localStorage.removeItem('listinha_real_device_accounts');
+    } catch {}
+
     getServerConfig().then((cfg) => {
       if (cfg.google_client_id) {
         setGoogleClientId(cfg.google_client_id);
@@ -55,43 +62,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, inviteListId 
     });
   }, []);
 
-  const rememberAccountOnDevice = (user: User) => {
-    try {
-      const filtered = deviceAccounts.filter(
-        (a) => a.email.toLowerCase() !== user.email.toLowerCase()
-      );
-      const updated = [user, ...filtered].slice(0, 5);
-      setDeviceAccounts(updated);
-      localStorage.setItem(DEVICE_ACCOUNTS_KEY, JSON.stringify(updated));
-    } catch {}
-  };
-
-  const completeLoginWithProfile = (
-    userName: string,
-    userEmail: string,
-    userAvatar?: string
-  ) => {
-    sound.playSuccess();
-    const cleanName = userName.trim();
-    const cleanEmail = userEmail.trim().toLowerCase();
-    const avatar =
-      userAvatar ||
-      `https://ui-avatars.com/api/?name=${encodeURIComponent(cleanName)}&background=0A84FF&color=fff&size=256&bold=true`;
-
-    const user: User = {
-      id: `usr_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`,
-      name: cleanName,
-      email: cleanEmail,
-      avatar,
-      isGoogleAuth: true,
-      color: '#0A84FF',
-    };
-
-    rememberAccountOnDevice(user);
-    onLogin(user);
-  };
-
-  // Real Google OAuth 2.0 Popup Flow (opens real accounts.google.com chooser & consent)
+  // Real Google OAuth 2.0 Popup Flow verified server-side
   const handleRealGoogleOAuth = () => {
     setErrorMsg('');
     if (!googleClientId) {
@@ -101,7 +72,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, inviteListId 
 
     const googleObj = (window as any).google;
     if (!googleObj?.accounts?.oauth2) {
-      setErrorMsg('Aguardando carregamento do script oficial do Google. Tente novamente em instantes.');
+      setErrorMsg(
+        'Aguardando carregamento do script oficial do Google. Tente novamente em instantes.'
+      );
       return;
     }
 
@@ -113,20 +86,16 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, inviteListId 
         prompt: 'select_account consent',
         callback: async (tokenResponse: any) => {
           if (tokenResponse && tokenResponse.access_token) {
-            try {
-              const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-                headers: { Authorization: `Bearer ${tokenResponse.access_token}` },
+            const authRes = await googleOAuthLogin(tokenResponse.access_token, inviteListId);
+            if (authRes.success && authRes.user) {
+              sound.playSuccess();
+              onLoginSuccess({
+                user: authRes.user,
+                lists: authRes.lists || [],
+                items: authRes.items || [],
               });
-              const profile = await res.json();
-              if (profile && profile.email) {
-                completeLoginWithProfile(
-                  profile.name || profile.given_name || profile.email.split('@')[0],
-                  profile.email,
-                  profile.picture
-                );
-              }
-            } catch {
-              setErrorMsg('Erro ao obter perfil do Google.');
+            } else {
+              setErrorMsg(authRes.error || 'Falha ao autenticar com o Google.');
             }
           }
           setIsGoogleLoading(false);
@@ -153,24 +122,67 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, inviteListId 
     setShowClientIdSetup(false);
   };
 
-  const handleDirectLoginSubmit = (e: React.FormEvent) => {
+  const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
-    if (!name.trim()) {
-      setErrorMsg('Digite seu nome.');
-      return;
-    }
-    if (!email.trim() || !email.includes('@')) {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
       setErrorMsg('Digite um e-mail válido.');
       return;
     }
-    if (!acceptedTerms) {
-      setErrorMsg('Marque a caixa aceitando participar e sincronizar as listas.');
-      return;
-    }
 
-    completeLoginWithProfile(name, email);
+    if (authMode === 'register') {
+      if (!name.trim()) {
+        setErrorMsg('Digite seu nome.');
+        return;
+      }
+      if (password.length < 6) {
+        setErrorMsg('Crie uma senha com pelo menos 6 caracteres para proteger sua conta.');
+        return;
+      }
+      if (!acceptedTerms) {
+        setErrorMsg('Marque a caixa aceitando os termos de sincronização.');
+        return;
+      }
+
+      setIsSubmitting(true);
+      const res = await registerUser(name.trim(), cleanEmail, password, inviteListId);
+      setIsSubmitting(false);
+
+      if (!res.success || !res.user) {
+        setErrorMsg(res.error || 'Não foi possível criar a conta.');
+        return;
+      }
+
+      sound.playSuccess();
+      onLoginSuccess({
+        user: res.user,
+        lists: res.lists || [],
+        items: res.items || [],
+      });
+    } else {
+      if (!password) {
+        setErrorMsg('Digite sua senha para entrar.');
+        return;
+      }
+
+      setIsSubmitting(true);
+      const res = await loginUser(cleanEmail, password, inviteListId);
+      setIsSubmitting(false);
+
+      if (!res.success || !res.user) {
+        setErrorMsg(res.error || 'E-mail ou senha inválidos.');
+        return;
+      }
+
+      sound.playSuccess();
+      onLoginSuccess({
+        user: res.user,
+        lists: res.lists || [],
+        items: res.items || [],
+      });
+    }
   };
 
   return (
@@ -201,58 +213,62 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, inviteListId 
 
         {/* Main Login Glass Card */}
         <div className="glass-panel rounded-3xl p-6 border border-white/15 shadow-2xl space-y-5">
-          {/* Previously used real accounts on this device (only if user has logged in before on this phone) */}
-          {deviceAccounts.length > 0 && (
-            <div className="space-y-2 pb-4 border-b border-white/10">
-              <span className="text-xs font-semibold text-slate-400 block">
-                Sua conta salva neste aparelho:
-              </span>
-              {deviceAccounts.map((acc) => (
-                <button
-                  key={acc.email}
-                  type="button"
-                  onClick={() => onLogin(acc)}
-                  className="w-full flex items-center justify-between p-3 rounded-2xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 text-left transition-all"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <img
-                      src={acc.avatar}
-                      alt={acc.name}
-                      className="w-9 h-9 rounded-full object-cover ring-1 ring-white/20"
-                    />
-                    <div className="min-w-0">
-                      <span className="text-xs font-bold text-white block truncate">{acc.name}</span>
-                      <span className="text-[11px] text-slate-400 block truncate">{acc.email}</span>
-                    </div>
-                  </div>
-                  <span className="text-xs text-blue-400 font-semibold">Entrar →</span>
-                </button>
-              ))}
-            </div>
-          )}
+          {/* Segmented Control: Entrar vs Criar Conta */}
+          <div className="grid grid-cols-2 p-1 rounded-2xl bg-black/50 border border-white/10">
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode('login');
+                setErrorMsg('');
+              }}
+              className={`py-2.5 text-xs font-bold rounded-xl transition-all ${
+                authMode === 'login'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Entrar na Conta
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode('register');
+                setErrorMsg('');
+              }}
+              className={`py-2.5 text-xs font-bold rounded-xl transition-all ${
+                authMode === 'register'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Criar Nova Conta
+            </button>
+          </div>
 
-          {/* Direct Real User Identification & Consent Form */}
-          <form onSubmit={handleDirectLoginSubmit} className="space-y-3.5">
-            <div>
-              <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                Seu Nome:
-              </label>
-              <div className="relative">
-                <UserIcon className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-                <input
-                  type="text"
-                  required
-                  placeholder="Digite seu nome real"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-black/50 border border-white/15 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-blue-500 transition-colors"
-                />
+          {/* Authenticated Form (Password Protected) */}
+          <form onSubmit={handleFormSubmit} className="space-y-3.5">
+            {authMode === 'register' && (
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                  Seu Nome:
+                </label>
+                <div className="relative">
+                  <UserIcon className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+                  <input
+                    type="text"
+                    required
+                    placeholder="Digite seu nome real"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-black/50 border border-white/15 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
             <div>
               <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                Seu E-mail (usado para vincular suas listas compartilhadas):
+                Seu E-mail:
               </label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
@@ -267,33 +283,77 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, inviteListId 
               </div>
             </div>
 
-            {/* Explicit Consent Checkbox */}
-            <label className="flex items-start gap-2.5 p-3 rounded-xl bg-white/[0.03] border border-white/10 cursor-pointer hover:bg-white/[0.05] transition-colors">
-              <input
-                type="checkbox"
-                checked={acceptedTerms}
-                onChange={(e) => setAcceptedTerms(e.target.checked)}
-                className="mt-0.5 w-4 h-4 rounded border-white/20 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-[11px] text-slate-300 leading-relaxed">
-                <strong>Aceito e concordo</strong> em sincronizar minhas listas na nuvem e compartilhar atualizações em tempo real com os membros que eu convidar.
-              </span>
-            </label>
+            <div>
+              <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                {authMode === 'register'
+                  ? 'Crie uma Senha (mínimo 6 caracteres):'
+                  : 'Sua Senha:'}
+              </label>
+              <div className="relative">
+                <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  minLength={authMode === 'register' ? 6 : 1}
+                  placeholder={
+                    authMode === 'register' ? 'Mínimo de 6 caracteres' : 'Digite sua senha'
+                  }
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full pl-10 pr-10 py-2.5 rounded-xl bg-black/50 border border-white/15 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-2.5 text-slate-400 hover:text-white"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Explicit Consent Checkbox on Registration */}
+            {authMode === 'register' && (
+              <label className="flex items-start gap-2.5 p-3 rounded-xl bg-white/[0.03] border border-white/10 cursor-pointer hover:bg-white/[0.05] transition-colors">
+                <input
+                  type="checkbox"
+                  checked={acceptedTerms}
+                  onChange={(e) => setAcceptedTerms(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded border-white/20 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-[11px] text-slate-300 leading-relaxed">
+                  <strong>Aceito e concordo</strong> em proteger minha conta com senha e sincronizar minhas listas em tempo real com os membros autorizados.
+                </span>
+              </label>
+            )}
 
             {errorMsg && (
-              <div className="p-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-xs text-red-300 text-center">
+              <div className="p-3 rounded-xl bg-red-500/15 border border-red-500/30 text-xs text-red-300 text-center font-medium">
                 {errorMsg}
               </div>
             )}
 
             <button
               type="submit"
-              className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:scale-98 text-white font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-600/30"
+              disabled={isSubmitting}
+              className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:scale-98 disabled:opacity-50 text-white font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-600/30"
             >
-              <span>Aceitar e Entrar no App</span>
+              <span>
+                {isSubmitting
+                  ? 'Verificando...'
+                  : authMode === 'register'
+                  ? 'Criar Conta Segura e Entrar'
+                  : 'Entrar com E-mail e Senha'}
+              </span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
+
+          {/* Security badge */}
+          <div className="flex items-center justify-center gap-1.5 text-[11px] text-emerald-400/90 bg-emerald-500/10 border border-emerald-500/20 rounded-xl py-2 px-3">
+            <ShieldCheck className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>Conta protegida com criptografia Bcrypt + Token de Sessão</span>
+          </div>
 
           {/* Divider */}
           <div className="relative flex py-1 items-center">
@@ -388,7 +448,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, inviteListId 
                   Google Cloud Credentials <ExternalLink className="w-2.5 h-2.5" />
                 </a>
               </div>
-              <div>2. Crie um <strong>ID do cliente OAuth (Aplicativo da Web)</strong></div>
+              <div>
+                2. Crie um <strong>ID do cliente OAuth (Aplicativo da Web)</strong>
+              </div>
               <div>
                 3. Em <strong>Origens JavaScript autorizadas</strong>, adicione:{' '}
                 <code className="text-emerald-400 bg-black/40 px-1.5 py-0.5 rounded">
