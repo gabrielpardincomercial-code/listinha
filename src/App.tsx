@@ -13,6 +13,7 @@ import {
   createDefaultUserList,
 } from './services/storage';
 import { realtime } from './services/realtime';
+import { fetchCloudList, joinCloudList, saveCloudList } from './services/api';
 import { CATEGORIES } from './utils/categories';
 import { sound } from './utils/audio';
 
@@ -71,17 +72,62 @@ export const App: React.FC = () => {
     return unsub;
   }, []);
 
-  // Update realtime list context
+  // Set active list in realtime sync manager
   useEffect(() => {
     if (activeListId) {
       realtime.setListId(activeListId);
     }
   }, [activeListId]);
 
-  // Realtime subscriber for updates from other tabs/devices
+  // If user is logged in and there is an inviteListId in the URL, join that cloud list!
+  useEffect(() => {
+    if (currentUser && inviteListId) {
+      joinCloudList(inviteListId, currentUser).then((res) => {
+        if (res.exists && res.list) {
+          setLists((prev) => {
+            const without = prev.filter((l) => l.id !== res.list!.id);
+            const updated = [res.list!, ...without];
+            saveStoredLists(updated);
+            return updated;
+          });
+          setActiveListId(res.list.id);
+          setItems(res.items);
+          saveStoredItems(res.items);
+        }
+      });
+    } else if (currentUser && activeListId) {
+      // Fetch cloud state for active list
+      fetchCloudList(activeListId).then((res) => {
+        if (res.exists && res.list) {
+          setLists((prev) => {
+            const updated = prev.map((l) => (l.id === res.list!.id ? res.list! : l));
+            saveStoredLists(updated);
+            return updated;
+          });
+          setItems(res.items);
+          saveStoredItems(res.items);
+        }
+      });
+    }
+  }, [currentUser, inviteListId]);
+
+  // Realtime subscriber for updates from cloud polling & other tabs
   useEffect(() => {
     const unsub = realtime.subscribe((payload) => {
-      if (payload.type === 'ITEM_TOGGLE') {
+      if (payload.type === 'SYNC_FULL') {
+        if (payload.list) {
+          setLists((prev) => {
+            const exists = prev.some((l) => l.id === payload.list!.id);
+            const updated = exists
+              ? prev.map((l) => (l.id === payload.list!.id ? payload.list! : l))
+              : [...prev, payload.list!];
+            saveStoredLists(updated);
+            return updated;
+          });
+        }
+        setItems(payload.items);
+        saveStoredItems(payload.items);
+      } else if (payload.type === 'ITEM_TOGGLE') {
         setItems((prev) => {
           const updated = prev.map((item) =>
             item.id === payload.itemId
@@ -141,7 +187,27 @@ export const App: React.FC = () => {
     setCurrentUser(user);
     saveStoredUser(user);
 
-    // Initialize or load user lists
+    // If logging in via invite link, join that list in the cloud!
+    if (inviteListId) {
+      joinCloudList(inviteListId, user).then((res) => {
+        if (res.exists && res.list) {
+          const initialLists = [res.list];
+          setLists(initialLists);
+          saveStoredLists(initialLists);
+          setActiveListId(res.list.id);
+          setItems(res.items);
+          saveStoredItems(res.items);
+        } else {
+          // Fallback to default list
+          createCleanUserList(user);
+        }
+      });
+    } else {
+      createCleanUserList(user);
+    }
+  };
+
+  const createCleanUserList = (user: User) => {
     const existing = getStoredLists(user);
     if (existing.length === 0) {
       const defaultList = createDefaultUserList(user);
@@ -149,9 +215,11 @@ export const App: React.FC = () => {
       setLists(initialLists);
       saveStoredLists(initialLists);
       setActiveListId(defaultList.id);
+      saveCloudList(defaultList);
     } else {
       setLists(existing);
       setActiveListId(existing[0].id);
+      saveCloudList(existing[0]);
     }
   };
 
@@ -170,7 +238,8 @@ export const App: React.FC = () => {
   }
 
   // Current list
-  const currentList = lists.find((l) => l.id === activeListId) || lists[0] || createDefaultUserList(currentUser);
+  const currentList =
+    lists.find((l) => l.id === activeListId) || lists[0] || createDefaultUserList(currentUser);
 
   // Current list items
   const currentListItems = items.filter((i) => i.listId === currentList.id);
@@ -206,7 +275,7 @@ export const App: React.FC = () => {
   // Completed items count in current list
   const completedCount = currentListItems.filter((i) => i.completed).length;
 
-  // Check if completion just occurred to trigger celebration
+  // Toggle complete
   const handleToggleComplete = (itemId: string) => {
     const item = items.find((i) => i.id === itemId);
     if (!item) return;
@@ -228,7 +297,7 @@ export const App: React.FC = () => {
     setItems(updatedItems);
     saveStoredItems(updatedItems);
 
-    // Broadcast in real-time
+    // Broadcast in real-time to cloud backend & tabs
     realtime.broadcast({
       type: 'ITEM_TOGGLE',
       itemId,
@@ -316,7 +385,7 @@ export const App: React.FC = () => {
     });
   };
 
-  // Assign item to participant (for temporary list)
+  // Assign item to participant
   const handleAssignItem = (itemId: string, participant: User | null) => {
     sound.playStep();
     const updated = items.map((i) =>
@@ -324,7 +393,12 @@ export const App: React.FC = () => {
         ? {
             ...i,
             assignedTo: participant
-              ? { id: participant.id, name: participant.name, avatar: participant.avatar, color: participant.color }
+              ? {
+                  id: participant.id,
+                  name: participant.name,
+                  avatar: participant.avatar,
+                  color: participant.color,
+                }
               : undefined,
           }
         : i
@@ -366,7 +440,7 @@ export const App: React.FC = () => {
     });
   };
 
-  // Add family member or collaborator to current list
+  // Add family member
   const handleAddFamilyMember = (name: string, email: string) => {
     const newMember: User = {
       id: `usr_fam_${Date.now()}`,
