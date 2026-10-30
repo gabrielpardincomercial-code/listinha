@@ -9,6 +9,8 @@ import {
   saveStoredLists,
   getStoredItems,
   saveStoredItems,
+  logoutAndClearSession,
+  createDefaultUserList,
 } from './services/storage';
 import { realtime } from './services/realtime';
 import { CATEGORIES } from './utils/categories';
@@ -22,19 +24,32 @@ import { AddItemSheet } from './components/AddItemSheet';
 import { ShareModal } from './components/ShareModal';
 import { GoogleAuthModal } from './components/GoogleAuthModal';
 import { NewListModal } from './components/NewListModal';
+import { LoginScreen } from './components/LoginScreen';
 
 export const App: React.FC = () => {
-  // Core state
-  const [currentUser, setCurrentUser] = useState<User>(getStoredUser);
-  const [lists, setLists] = useState<ShoppingList[]>(getStoredLists);
-  const [activeListId, setActiveListId] = useState<string>(() => {
-    // Check if URL has ?list=xyz
+  // Check URL parameters for invites
+  const inviteListId = useMemo(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      const urlList = params.get('list');
-      if (urlList) return urlList;
+      return params.get('list');
     }
-    return lists[0]?.id || 'list_familia';
+    return null;
+  }, []);
+
+  // Core Authentication state
+  const [currentUser, setCurrentUser] = useState<User | null>(getStoredUser);
+
+  // Lists and items state
+  const [lists, setLists] = useState<ShoppingList[]>(() => {
+    const user = getStoredUser();
+    return getStoredLists(user);
+  });
+
+  const [activeListId, setActiveListId] = useState<string>(() => {
+    if (inviteListId) return inviteListId;
+    const user = getStoredUser();
+    const loadedLists = getStoredLists(user);
+    return loadedLists[0]?.id || '';
   });
 
   const [items, setItems] = useState<ListItem[]>(getStoredItems);
@@ -58,7 +73,9 @@ export const App: React.FC = () => {
 
   // Update realtime list context
   useEffect(() => {
-    realtime.setListId(activeListId);
+    if (activeListId) {
+      realtime.setListId(activeListId);
+    }
   }, [activeListId]);
 
   // Realtime subscriber for updates from other tabs/devices
@@ -119,52 +136,75 @@ export const App: React.FC = () => {
     return unsub;
   }, []);
 
+  // Login handler
+  const handleLogin = (user: User) => {
+    setCurrentUser(user);
+    saveStoredUser(user);
+
+    // Initialize or load user lists
+    const existing = getStoredLists(user);
+    if (existing.length === 0) {
+      const defaultList = createDefaultUserList(user);
+      const initialLists = [defaultList];
+      setLists(initialLists);
+      saveStoredLists(initialLists);
+      setActiveListId(defaultList.id);
+    } else {
+      setLists(existing);
+      setActiveListId(existing[0].id);
+    }
+  };
+
+  // Logout handler
+  const handleLogout = () => {
+    logoutAndClearSession();
+    setCurrentUser(null);
+    setLists([]);
+    setItems([]);
+    setActiveListId('');
+  };
+
+  // If user is not logged in, show the clean Apple Login Screen Gate!
+  if (!currentUser) {
+    return <LoginScreen onLogin={handleLogin} inviteListId={inviteListId} />;
+  }
+
   // Current list
-  const currentList = useMemo(() => {
-    return lists.find((l) => l.id === activeListId) || lists[0];
-  }, [lists, activeListId]);
+  const currentList = lists.find((l) => l.id === activeListId) || lists[0] || createDefaultUserList(currentUser);
 
   // Current list items
-  const currentListItems = useMemo(() => {
-    return items.filter((i) => i.listId === currentList.id);
-  }, [items, currentList.id]);
+  const currentListItems = items.filter((i) => i.listId === currentList.id);
 
   // Filtered items based on filter mode and search
-  const filteredItems = useMemo(() => {
-    return currentListItems.filter((item) => {
-      // Search
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const matchesName = item.name.toLowerCase().includes(q);
-        const matchesCat = item.category.toLowerCase().includes(q);
-        const matchesAssignee = item.assignedTo?.name.toLowerCase().includes(q);
-        if (!matchesName && !matchesCat && !matchesAssignee) return false;
-      }
+  const filteredItems = currentListItems.filter((item) => {
+    // Search
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      const matchesName = item.name.toLowerCase().includes(q);
+      const matchesCat = item.category.toLowerCase().includes(q);
+      const matchesAssignee = item.assignedTo?.name.toLowerCase().includes(q);
+      if (!matchesName && !matchesCat && !matchesAssignee) return false;
+    }
 
-      // Filter mode
-      if (filterMode === 'pending') return !item.completed;
-      if (filterMode === 'completed') return item.completed;
-      if (filterMode === 'my_items') return item.assignedTo?.id === currentUser.id;
+    // Filter mode
+    if (filterMode === 'pending') return !item.completed;
+    if (filterMode === 'completed') return item.completed;
+    if (filterMode === 'my_items') return item.assignedTo?.id === currentUser.id;
 
-      return true;
-    });
-  }, [currentListItems, searchQuery, filterMode, currentUser.id]);
+    return true;
+  });
 
   // Items grouped by category
-  const groupedCategories = useMemo(() => {
-    return CATEGORIES.map((cat) => {
-      const catItems = filteredItems.filter((i) => i.category === cat.id);
-      return {
-        category: cat,
-        items: catItems,
-      };
-    }).filter((g) => g.items.length > 0);
-  }, [filteredItems]);
+  const groupedCategories = CATEGORIES.map((cat) => {
+    const catItems = filteredItems.filter((i) => i.category === cat.id);
+    return {
+      category: cat,
+      items: catItems,
+    };
+  }).filter((g) => g.items.length > 0);
 
   // Completed items count in current list
-  const completedCount = useMemo(() => {
-    return currentListItems.filter((i) => i.completed).length;
-  }, [currentListItems]);
+  const completedCount = currentListItems.filter((i) => i.completed).length;
 
   // Check if completion just occurred to trigger celebration
   const handleToggleComplete = (itemId: string) => {
@@ -326,10 +366,41 @@ export const App: React.FC = () => {
     });
   };
 
-  // Select user
-  const handleSelectUser = (user: User) => {
-    setCurrentUser(user);
-    saveStoredUser(user);
+  // Add family member or collaborator to current list
+  const handleAddFamilyMember = (name: string, email: string) => {
+    const newMember: User = {
+      id: `usr_fam_${Date.now()}`,
+      name,
+      email: email || `${name.toLowerCase().replace(/\s+/g, '')}@listinha.com`,
+      avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random&color=fff&size=256&bold=true`,
+      color: '#0A84FF',
+    };
+
+    const updatedLists = lists.map((l) =>
+      l.id === currentList.id
+        ? {
+            ...l,
+            collaborators: [...l.collaborators, newMember],
+            eventDetails: l.eventDetails
+              ? {
+                  ...l.eventDetails,
+                  participants: [...l.eventDetails.participants, newMember],
+                }
+              : undefined,
+          }
+        : l
+    );
+
+    setLists(updatedLists);
+    saveStoredLists(updatedLists);
+
+    const updatedCurrent = updatedLists.find((l) => l.id === currentList.id);
+    if (updatedCurrent) {
+      realtime.broadcast({
+        type: 'LIST_UPDATE',
+        list: updatedCurrent,
+      });
+    }
   };
 
   return (
@@ -437,12 +508,12 @@ export const App: React.FC = () => {
               🛒
             </div>
             <h3 className="text-base font-bold text-white mb-1">
-              {searchQuery ? 'Nenhum item encontrado' : 'Nenhum item nesta lista'}
+              {searchQuery ? 'Nenhum item encontrado' : 'Sua lista está limpa e vazia'}
             </h3>
             <p className="text-xs text-slate-400 max-w-sm mx-auto mb-4">
               {searchQuery
                 ? `Não encontramos resultados para "${searchQuery}". Tente outro termo.`
-                : 'Toque no botão abaixo para adicionar frutas, carnes, laticínios ou bebidas com cálculo automático de unidades ou peso.'}
+                : 'Toque no botão abaixo para adicionar os itens que você precisa comprar no supermercado.'}
             </p>
             {!searchQuery && (
               <button
@@ -498,12 +569,14 @@ export const App: React.FC = () => {
         currentUser={currentUser}
       />
 
-      {/* Google Auth & User Switcher Modal */}
+      {/* Google Auth & User Management Modal */}
       <GoogleAuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
         currentUser={currentUser}
-        onSelectUser={handleSelectUser}
+        currentList={currentList}
+        onLogout={handleLogout}
+        onAddFamilyMember={handleAddFamilyMember}
       />
 
       {/* New List Modal */}

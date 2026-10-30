@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { X, Sparkles, Plus, Calendar, MapPin, Users } from 'lucide-react';
+import { X, Sparkles, Plus, Calendar, MapPin, Users, UserPlus } from 'lucide-react';
 import { ListType, ShoppingList, User } from '../types';
-import { INITIAL_PARTICIPANTS } from '../services/storage';
 import { sound } from '../utils/audio';
 
 interface NewListModalProps {
@@ -25,14 +24,33 @@ export const NewListModal: React.FC<NewListModalProps> = ({
   const [description, setDescription] = useState('');
   const [eventDate, setEventDate] = useState('');
   const [eventLocation, setEventLocation] = useState('');
+  const [extraParticipants, setExtraParticipants] = useState<string[]>([]);
+  const [newPersonName, setNewPersonName] = useState('');
 
   if (!isOpen) return null;
+
+  const handleAddParticipant = () => {
+    if (!newPersonName.trim()) return;
+    setExtraParticipants((prev) => [...prev, newPersonName.trim()]);
+    setNewPersonName('');
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
 
     sound.playStep();
+
+    const participants: User[] = [
+      currentUser,
+      ...extraParticipants.map((pName, idx) => ({
+        id: `usr_custom_${idx}_${Date.now()}`,
+        name: pName,
+        email: `${pName.toLowerCase().replace(/\s+/g, '')}@listinha.com`,
+        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(pName)}&background=random&color=fff&size=256&bold=true`,
+        color: ['#FF2D55', '#30D158', '#BF5AF2', '#FF9500'][idx % 4],
+      })),
+    ];
 
     const newList: ShoppingList = {
       id: `list_${Date.now()}`,
@@ -43,13 +61,13 @@ export const NewListModal: React.FC<NewListModalProps> = ({
       createdAt: Date.now(),
       updatedAt: Date.now(),
       ownerId: currentUser.id,
-      collaborators: INITIAL_PARTICIPANTS,
+      collaborators: participants,
       eventDetails:
         type === 'temporary'
           ? {
               date: eventDate.trim() || 'Data a definir',
               location: eventLocation.trim() || 'A combinar',
-              participants: INITIAL_PARTICIPANTS,
+              participants,
             }
           : undefined,
     };
@@ -150,7 +168,7 @@ export const NewListModal: React.FC<NewListModalProps> = ({
               type="text"
               required
               autoFocus
-              placeholder={type === 'family' ? 'Ex: Compras Semanais, Feira...' : 'Ex: Happy Hour da Firma, Churrasco de Domingo...'}
+              placeholder={type === 'family' ? 'Ex: Compras da Semana, Feira...' : 'Ex: Happy Hour da Firma, Churrasco de Domingo...'}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className="w-full px-4 py-3 rounded-2xl bg-black/50 border border-white/15 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 text-sm font-medium transition-all"
@@ -177,11 +195,59 @@ export const NewListModal: React.FC<NewListModalProps> = ({
                 <label className="text-[11px] text-slate-400 block mb-1">Local:</label>
                 <input
                   type="text"
-                  placeholder="Ex: Área Gourmet / Casa do Gabriel"
+                  placeholder="Ex: Área Gourmet / Casa de Amigos"
                   value={eventLocation}
                   onChange={(e) => setEventLocation(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/10 text-white placeholder-slate-500 text-xs focus:outline-none focus:border-purple-400"
                 />
+              </div>
+
+              {/* Add Friends/Participants */}
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Pessoas envolvidas:</label>
+                <div className="flex gap-1.5 mb-2">
+                  <input
+                    type="text"
+                    placeholder="Nome do amigo (ex: Lucas, Camila)"
+                    value={newPersonName}
+                    onChange={(e) => setNewPersonName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddParticipant();
+                      }
+                    }}
+                    className="flex-1 px-3 py-1.5 rounded-xl bg-black/40 border border-white/10 text-white placeholder-slate-500 text-xs focus:outline-none focus:border-purple-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddParticipant}
+                    className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold"
+                  >
+                    + Adicionar
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5">
+                  <span className="text-[11px] px-2 py-0.5 rounded-lg bg-white/10 text-slate-200">
+                    {currentUser.name.split(' ')[0]} (Você)
+                  </span>
+                  {extraParticipants.map((p, idx) => (
+                    <span
+                      key={idx}
+                      className="text-[11px] px-2 py-0.5 rounded-lg bg-purple-500/20 text-purple-200 border border-purple-500/30 flex items-center gap-1"
+                    >
+                      <span>{p}</span>
+                      <button
+                        type="button"
+                        onClick={() => setExtraParticipants(extraParticipants.filter((_, i) => i !== idx))}
+                        className="text-purple-400 hover:text-white"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
           )}

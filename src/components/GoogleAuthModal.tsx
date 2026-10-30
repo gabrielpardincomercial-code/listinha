@@ -1,29 +1,43 @@
 import React, { useState } from 'react';
-import { X, Check, LogOut, UserCheck, ShieldCheck } from 'lucide-react';
-import { User } from '../types';
-import { INITIAL_PARTICIPANTS } from '../services/storage';
+import { X, LogOut, Trash2, ShieldCheck, UserPlus, Check, Users } from 'lucide-react';
+import { ShoppingList, User } from '../types';
 import { sound } from '../utils/audio';
 
 interface GoogleAuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUser: User;
-  onSelectUser: (user: User) => void;
+  currentList: ShoppingList;
+  onLogout: () => void;
+  onAddFamilyMember: (name: string, email: string) => void;
 }
 
 export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
   isOpen,
   onClose,
   currentUser,
-  onSelectUser,
+  currentList,
+  onLogout,
+  onAddFamilyMember,
 }) => {
-  const [clientId, setClientId] = useState('');
-  const [showConfig, setShowConfig] = useState(false);
+  const [newMemberName, setNewMemberName] = useState('');
+  const [newMemberEmail, setNewMemberEmail] = useState('');
+  const [isAddingMember, setIsAddingMember] = useState(false);
 
   if (!isOpen) return null;
 
+  const handleAddMemberSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMemberName.trim()) return;
+    sound.playSuccess();
+    onAddFamilyMember(newMemberName.trim(), newMemberEmail.trim());
+    setNewMemberName('');
+    setNewMemberEmail('');
+    setIsAddingMember(false);
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in">
       <div
         className="w-full max-w-md bg-[#0e131f] border border-white/15 rounded-3xl p-6 shadow-2xl shadow-black/90 max-h-[90vh] overflow-y-auto animate-pop-in"
         onClick={(e) => e.stopPropagation()}
@@ -52,8 +66,8 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
               </svg>
             </div>
             <div>
-              <h2 className="text-base font-bold text-white tracking-tight">Conta Google</h2>
-              <p className="text-xs text-slate-400">Autenticação e sincronização familiar</p>
+              <h2 className="text-base font-bold text-white tracking-tight">Sua Conta Google</h2>
+              <p className="text-xs text-slate-400">Gerenciar sessão e família</p>
             </div>
           </div>
           <button
@@ -67,74 +81,115 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
 
         {/* Current Active User Profile Card */}
         <div className="p-4 bg-gradient-to-br from-white/[0.08] to-white/[0.02] rounded-2xl border border-white/15 mb-5 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <img
               src={currentUser.avatar}
               alt={currentUser.name}
-              className="w-12 h-12 rounded-full object-cover ring-2 ring-blue-500 shadow-md"
+              className="w-12 h-12 rounded-full object-cover ring-2 ring-blue-500 shadow-md flex-shrink-0"
             />
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="text-sm font-bold text-white leading-tight">
-                  {currentUser.name}
-                </span>
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span className="text-sm font-bold text-white truncate">{currentUser.name}</span>
+                <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
               </div>
-              <span className="text-xs text-slate-400 block">{currentUser.email}</span>
+              <span className="text-xs text-slate-400 block truncate">{currentUser.email}</span>
               <span className="inline-block mt-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.2 rounded-full border border-emerald-500/20">
-                Conectado com Google
+                Sessão Google Ativa
               </span>
             </div>
           </div>
         </div>
 
-        {/* Multi-Profile Switcher for testing and family simulation */}
+        {/* Family Collaborators in this list */}
         <div className="mb-5">
-          <span className="text-xs font-semibold text-slate-300 block mb-2 flex items-center gap-1.5">
-            <UserCheck className="w-3.5 h-3.5 text-blue-400" />
-            Alternar perfil para testar colaboração em tempo real:
-          </span>
-          <div className="space-y-2">
-            {INITIAL_PARTICIPANTS.map((participant) => {
-              const isSelected = participant.id === currentUser.id;
-              return (
-                <button
-                  key={participant.id}
-                  type="button"
-                  onClick={() => {
-                    sound.playStep();
-                    onSelectUser(participant);
-                    onClose();
-                  }}
-                  className={`w-full flex items-center justify-between p-2.5 rounded-xl border text-left transition-all ${
-                    isSelected
-                      ? 'bg-blue-600/20 border-blue-500 text-white font-semibold'
-                      : 'bg-white/[0.03] hover:bg-white/[0.08] border-white/5 text-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <img
-                      src={participant.avatar}
-                      alt={participant.name}
-                      className="w-8 h-8 rounded-full object-cover"
-                    />
-                    <div>
-                      <span className="text-xs font-bold block">{participant.name}</span>
-                      <span className="text-[10px] text-slate-400 block">{participant.email}</span>
-                    </div>
-                  </div>
-                  {isSelected && <Check className="w-4 h-4 text-blue-400" />}
-                </button>
-              );
-            })}
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+              <Users className="w-3.5 h-3.5 text-blue-400" />
+              Pessoas nesta lista ({currentList.collaborators.length}):
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsAddingMember(!isAddingMember)}
+              className="text-xs text-blue-400 hover:text-blue-300 font-medium transition-colors"
+            >
+              {isAddingMember ? 'Cancelar' : '+ Adicionar pessoa'}
+            </button>
+          </div>
+
+          {isAddingMember && (
+            <form onSubmit={handleAddMemberSubmit} className="p-3 bg-white/[0.04] rounded-2xl border border-white/10 space-y-2.5 mb-3 animate-fade-in">
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Nome (ex: Esposa, Filho, João):</label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  placeholder="Nome do familiar ou amigo"
+                  value={newMemberName}
+                  onChange={(e) => setNewMemberName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/15 text-white placeholder-slate-500 text-xs focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">E-mail (opcional):</label>
+                <input
+                  type="email"
+                  placeholder="email@gmail.com"
+                  value={newMemberEmail}
+                  onChange={(e) => setNewMemberEmail(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/15 text-white placeholder-slate-500 text-xs focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>Salvar Pessoa na Lista</span>
+              </button>
+            </form>
+          )}
+
+          <div className="space-y-1.5">
+            {currentList.collaborators.map((collab) => (
+              <div
+                key={collab.id}
+                className="flex items-center justify-between p-2 rounded-xl bg-white/[0.02] border border-white/5"
+              >
+                <div className="flex items-center gap-2">
+                  <img
+                    src={collab.avatar}
+                    alt={collab.name}
+                    className="w-6 h-6 rounded-full object-cover ring-1 ring-white/15"
+                  />
+                  <span className="text-xs text-slate-200">
+                    {collab.name} {collab.id === currentUser.id && '(Você)'}
+                  </span>
+                </div>
+                <span className="text-[10px] text-slate-400">
+                  {collab.id === currentList.ownerId ? 'Criador' : 'Membro'}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Custom Google OAuth Credentials notice */}
-        <div className="pt-3 border-t border-white/10 text-center">
-          <p className="text-[11px] text-slate-500">
-            Utiliza autenticação Google OAuth 2.0 segura compatível com Android, iOS e Web.
-          </p>
+        {/* Logout Action */}
+        <div className="pt-3 border-t border-white/10 space-y-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm('Deseja realmente sair da conta Google? Você voltará para a tela de login.')) {
+                sound.playStep();
+                onLogout();
+                onClose();
+              }
+            }}
+            className="w-full py-2.5 px-4 rounded-xl bg-red-500/10 hover:bg-red-500/20 active:scale-98 text-red-400 font-semibold text-xs flex items-center justify-center gap-2 border border-red-500/20 transition-all"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Sair da Conta (Logout)</span>
+          </button>
         </div>
       </div>
     </div>
