@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0A84FF" />
+      <stop offset="50%" stop-color="#0066CC" />
+      <stop offset="100%" stop-color="#004080" />
+    </linearGradient>
+    <linearGradient id="glassGloss" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.35" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.0" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="24" flood-color="#000000" flood-opacity="0.4" />
+    </filter>
+  </defs>
+
+  <!-- iOS Squircle base -->
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#bgGrad)" filter="url(#shadow)" />
+  <rect x="32" y="32" width="448" height="224" rx="112" fill="url(#glassGloss)" />
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="4" />
+
+  <!-- Shopping cart / Bag with checkmark -->
+  <g transform="translate(106, 116)" stroke="#ffffff" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- Bag handles -->
+    <path d="M 90 120 C 90 50, 210 50, 210 120" stroke-width="22" opacity="0.8" />
+    
+    <!-- Bag body -->
+    <path d="M 40 120 L 60 270 C 62 284, 76 295, 90 295 L 210 295 C 224 295, 238 284, 240 270 L 260 120 Z" fill="rgba(255,255,255,0.12)" />
+    
+    <!-- Glowing green checkmark inside -->
+    <circle cx="210" cy="210" r="48" fill="#30D158" stroke="#ffffff" stroke-width="12" />
+    <path d="M 194 210 L 206 222 L 228 198" stroke="#ffffff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+</svg>
