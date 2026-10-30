@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Sparkles, Plus, Calendar, MapPin, Users, UserPlus } from 'lucide-react';
+import { X, Plus, Users } from 'lucide-react';
 import { ListType, ShoppingList, User } from '../types';
 import { sound } from '../utils/audio';
 
@@ -24,15 +24,23 @@ export const NewListModal: React.FC<NewListModalProps> = ({
   const [description, setDescription] = useState('');
   const [eventDate, setEventDate] = useState('');
   const [eventLocation, setEventLocation] = useState('');
-  const [extraParticipants, setExtraParticipants] = useState<string[]>([]);
+  const [extraParticipants, setExtraParticipants] = useState<Array<{ name: string; email: string }>>([]);
   const [newPersonName, setNewPersonName] = useState('');
+  const [newPersonEmail, setNewPersonEmail] = useState('');
 
   if (!isOpen) return null;
 
   const handleAddParticipant = () => {
     if (!newPersonName.trim()) return;
-    setExtraParticipants((prev) => [...prev, newPersonName.trim()]);
+    setExtraParticipants((prev) => [
+      ...prev,
+      {
+        name: newPersonName.trim(),
+        email: newPersonEmail.trim().toLowerCase(),
+      },
+    ]);
     setNewPersonName('');
+    setNewPersonEmail('');
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -43,11 +51,11 @@ export const NewListModal: React.FC<NewListModalProps> = ({
 
     const participants: User[] = [
       currentUser,
-      ...extraParticipants.map((pName, idx) => ({
+      ...extraParticipants.map((p, idx) => ({
         id: `usr_custom_${idx}_${Date.now()}`,
-        name: pName,
-        email: `${pName.toLowerCase().replace(/\s+/g, '')}@listinha.com`,
-        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(pName)}&background=random&color=fff&size=256&bold=true`,
+        name: p.name,
+        email: p.email || `${p.name.toLowerCase().replace(/\s+/g, '')}@listinha.local`,
+        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(p.name)}&background=random&color=fff&size=256&bold=true`,
         color: ['#FF2D55', '#30D158', '#BF5AF2', '#FF9500'][idx % 4],
       })),
     ];
@@ -57,7 +65,8 @@ export const NewListModal: React.FC<NewListModalProps> = ({
       title: title.trim(),
       type,
       emoji,
-      description: description.trim() || (type === 'family' ? 'Lista compartilhada' : 'Evento temporário'),
+      description:
+        description.trim() || (type === 'family' ? 'Lista compartilhada' : 'Evento temporário'),
       createdAt: Date.now(),
       updatedAt: Date.now(),
       ownerId: currentUser.id,
@@ -163,12 +172,18 @@ export const NewListModal: React.FC<NewListModalProps> = ({
 
           {/* List Title */}
           <div>
-            <label className="text-xs font-semibold text-slate-300 block mb-1.5">Nome da Lista</label>
+            <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+              Nome da Lista
+            </label>
             <input
               type="text"
               required
               autoFocus
-              placeholder={type === 'family' ? 'Ex: Compras da Semana, Feira...' : 'Ex: Happy Hour da Firma, Churrasco de Domingo...'}
+              placeholder={
+                type === 'family'
+                  ? 'Ex: Compras da Semana, Feira...'
+                  : 'Ex: Happy Hour, Churrasco de Domingo...'
+              }
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className="w-full px-4 py-3 rounded-2xl bg-black/50 border border-white/15 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 text-sm font-medium transition-all"
@@ -195,7 +210,7 @@ export const NewListModal: React.FC<NewListModalProps> = ({
                 <label className="text-[11px] text-slate-400 block mb-1">Local:</label>
                 <input
                   type="text"
-                  placeholder="Ex: Área Gourmet / Casa de Amigos"
+                  placeholder="Ex: Área Gourmet"
                   value={eventLocation}
                   onChange={(e) => setEventLocation(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/10 text-white placeholder-slate-500 text-xs focus:outline-none focus:border-purple-400"
@@ -204,28 +219,39 @@ export const NewListModal: React.FC<NewListModalProps> = ({
 
               {/* Add Friends/Participants */}
               <div>
-                <label className="text-[11px] text-slate-400 block mb-1">Pessoas envolvidas:</label>
-                <div className="flex gap-1.5 mb-2">
+                <label className="text-[11px] text-slate-400 block mb-1">
+                  Adicionar participantes (nome e e-mail opcional):
+                </label>
+                <div className="space-y-1.5 mb-2">
                   <input
                     type="text"
-                    placeholder="Nome do amigo (ex: Lucas, Camila)"
+                    placeholder="Nome do participante"
                     value={newPersonName}
                     onChange={(e) => setNewPersonName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddParticipant();
-                      }
-                    }}
-                    className="flex-1 px-3 py-1.5 rounded-xl bg-black/40 border border-white/10 text-white placeholder-slate-500 text-xs focus:outline-none focus:border-purple-400"
+                    className="w-full px-3 py-1.5 rounded-xl bg-black/40 border border-white/10 text-white placeholder-slate-500 text-xs focus:outline-none focus:border-purple-400"
                   />
-                  <button
-                    type="button"
-                    onClick={handleAddParticipant}
-                    className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold"
-                  >
-                    + Adicionar
-                  </button>
+                  <div className="flex gap-1.5">
+                    <input
+                      type="email"
+                      placeholder="E-mail (para sincronizar no celular dele)"
+                      value={newPersonEmail}
+                      onChange={(e) => setNewPersonEmail(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddParticipant();
+                        }
+                      }}
+                      className="flex-1 px-3 py-1.5 rounded-xl bg-black/40 border border-white/10 text-white placeholder-slate-500 text-xs focus:outline-none focus:border-purple-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddParticipant}
+                      className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold"
+                    >
+                      + Incluir
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap gap-1.5">
@@ -237,10 +263,12 @@ export const NewListModal: React.FC<NewListModalProps> = ({
                       key={idx}
                       className="text-[11px] px-2 py-0.5 rounded-lg bg-purple-500/20 text-purple-200 border border-purple-500/30 flex items-center gap-1"
                     >
-                      <span>{p}</span>
+                      <span>{p.name}</span>
                       <button
                         type="button"
-                        onClick={() => setExtraParticipants(extraParticipants.filter((_, i) => i !== idx))}
+                        onClick={() =>
+                          setExtraParticipants(extraParticipants.filter((_, i) => i !== idx))
+                        }
                         className="text-purple-400 hover:text-white"
                       >
                         ×

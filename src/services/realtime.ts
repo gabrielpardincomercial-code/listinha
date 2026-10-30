@@ -1,4 +1,4 @@
-import { ListItem, ShoppingList, SyncStatus } from '../types';
+import { ListItem, ShoppingList, SyncStatus, User } from '../types';
 import {
   pollCloudUpdates,
   saveCloudItem,
@@ -20,8 +20,8 @@ type MessagePayload =
   | { type: 'ITEM_UPDATE'; item: ListItem }
   | { type: 'ITEM_DELETE'; itemId: string }
   | { type: 'ITEMS_CLEAR_COMPLETED'; listId: string }
-  | { type: 'LIST_UPDATE'; list: ShoppingList }
-  | { type: 'SYNC_FULL'; list?: ShoppingList; items: ListItem[] };
+  | { type: 'LIST_UPDATE'; list: ShoppingList; items?: ListItem[] }
+  | { type: 'SYNC_FULL'; list?: ShoppingList; lists?: ShoppingList[]; items: ListItem[] };
 
 type SyncCallback = (payload: MessagePayload) => void;
 
@@ -32,7 +32,7 @@ class RealtimeSyncManager {
   private status: SyncStatus = 'connected';
   private pollInterval: number | null = null;
   private currentListId: string = '';
-  private lastPollTime: number = 0;
+  private currentUser: User | null = null;
   private isPolling: boolean = false;
 
   constructor() {
@@ -55,7 +55,6 @@ class RealtimeSyncManager {
         this.stopPolling();
       });
 
-      // Pause when tab is hidden, resume immediately when visible
       document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
           this.stopPolling();
@@ -67,10 +66,11 @@ class RealtimeSyncManager {
     }
   }
 
-  public setListId(listId: string) {
-    if (this.currentListId !== listId) {
-      this.currentListId = listId;
-      this.lastPollTime = 0;
+  public setContext(listId: string, user: User | null) {
+    const changed = this.currentListId !== listId || this.currentUser?.id !== user?.id;
+    this.currentListId = listId;
+    this.currentUser = user;
+    if (changed && listId) {
       this.startPolling();
       this.doPoll();
     }
@@ -80,7 +80,6 @@ class RealtimeSyncManager {
     this.stopPolling();
     if (!this.currentListId || typeof window === 'undefined') return;
 
-    // Poll every 2.5 seconds
     this.pollInterval = window.setInterval(() => {
       this.doPoll();
     }, 2500);
@@ -98,15 +97,18 @@ class RealtimeSyncManager {
     this.isPolling = true;
 
     try {
-      const data = await pollCloudUpdates(this.currentListId, this.lastPollTime);
+      const data = await pollCloudUpdates(
+        this.currentListId,
+        this.currentUser?.id,
+        this.currentUser?.email
+      );
       if (data && data.success) {
-        this.lastPollTime = data.server_time || Date.now();
         this.setStatus('connected');
 
-        // Notify app with current cloud state
         this.notifySubscribers({
           type: 'SYNC_FULL',
           list: data.list,
+          lists: data.lists,
           items: data.items,
         });
       }
@@ -144,14 +146,12 @@ class RealtimeSyncManager {
   public broadcast(payload: MessagePayload) {
     this.setStatus('syncing');
 
-    // Broadcast across local tabs
     if (this.channel) {
       try {
         this.channel.postMessage(payload);
       } catch {}
     }
 
-    // Push to Hostinger Cloud Backend
     if (payload.type === 'ITEM_ADD' || payload.type === 'ITEM_UPDATE') {
       saveCloudItem(payload.item).finally(() => this.setStatus('connected'));
     } else if (payload.type === 'ITEM_TOGGLE') {
@@ -163,7 +163,7 @@ class RealtimeSyncManager {
     } else if (payload.type === 'ITEMS_CLEAR_COMPLETED') {
       clearCloudCompleted(payload.listId).finally(() => this.setStatus('connected'));
     } else if (payload.type === 'LIST_UPDATE') {
-      saveCloudList(payload.list).finally(() => this.setStatus('connected'));
+      saveCloudList(payload.list, payload.items).finally(() => this.setStatus('connected'));
     } else {
       setTimeout(() => this.setStatus('connected'), 300);
     }

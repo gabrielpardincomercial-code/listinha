@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import confetti from 'canvas-confetti';
-import { Plus, Search, Sparkles, CheckCheck, ShoppingCart, SlidersHorizontal, Share2 } from 'lucide-react';
+import { Plus, Search, Share2 } from 'lucide-react';
 import { ListItem, ShoppingList, SyncStatus, User } from './types';
 import {
   getStoredUser,
@@ -13,7 +13,7 @@ import {
   createDefaultUserList,
 } from './services/storage';
 import { realtime } from './services/realtime';
-import { fetchCloudList, joinCloudList, saveCloudList } from './services/api';
+import { userCloudLogin, saveCloudList } from './services/api';
 import { CATEGORIES } from './utils/categories';
 import { sound } from './utils/audio';
 
@@ -28,11 +28,20 @@ import { NewListModal } from './components/NewListModal';
 import { LoginScreen } from './components/LoginScreen';
 
 export const App: React.FC = () => {
-  // Check URL parameters for invites
+  // Check URL parameters for invites and persist in sessionStorage so it's never lost
   const inviteListId = useMemo(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      return params.get('list');
+      const fromUrl = params.get('list');
+      if (fromUrl) {
+        try {
+          sessionStorage.setItem('listinha_pending_invite', fromUrl);
+        } catch {}
+        return fromUrl;
+      }
+      try {
+        return sessionStorage.getItem('listinha_pending_invite');
+      } catch {}
     }
     return null;
   }, []);
@@ -72,50 +81,59 @@ export const App: React.FC = () => {
     return unsub;
   }, []);
 
-  // Set active list in realtime sync manager
+  // Update realtime context whenever activeListId or currentUser changes
   useEffect(() => {
-    if (activeListId) {
-      realtime.setListId(activeListId);
+    if (activeListId && currentUser) {
+      realtime.setContext(activeListId, currentUser);
+    } else {
+      realtime.stopPolling();
     }
-  }, [activeListId]);
+  }, [activeListId, currentUser]);
 
-  // If user is logged in and there is an inviteListId in the URL, join that cloud list!
-  useEffect(() => {
-    if (currentUser && inviteListId) {
-      joinCloudList(inviteListId, currentUser).then((res) => {
-        if (res.exists && res.list) {
-          setLists((prev) => {
-            const without = prev.filter((l) => l.id !== res.list!.id);
-            const updated = [res.list!, ...without];
-            saveStoredLists(updated);
-            return updated;
-          });
-          setActiveListId(res.list.id);
-          setItems(res.items);
-          saveStoredItems(res.items);
-        }
-      });
-    } else if (currentUser && activeListId) {
-      // Fetch cloud state for active list
-      fetchCloudList(activeListId).then((res) => {
-        if (res.exists && res.list) {
-          setLists((prev) => {
-            const updated = prev.map((l) => (l.id === res.list!.id ? res.list! : l));
-            saveStoredLists(updated);
-            return updated;
-          });
-          setItems(res.items);
-          saveStoredItems(res.items);
-        }
-      });
+  // Sync user's local lists to cloud & fetch all shared lists for this user's email
+  const syncUserSessionWithCloud = async (user: User, targetInviteId?: string | null) => {
+    // 1. Ensure any local lists & items created by this user are saved on the server first
+    const localLists = getStoredLists(user);
+    const localItems = getStoredItems();
+    for (const l of localLists) {
+      const lItems = localItems.filter((i) => i.listId === l.id);
+      await saveCloudList(l, lItems);
     }
-  }, [currentUser, inviteListId]);
+
+    // 2. Call userCloudLogin to link email, join invite list (if any), and fetch all lists shared with this email
+    const res = await userCloudLogin(user, targetInviteId);
+    if (res.success && Array.isArray(res.lists) && res.lists.length > 0) {
+      setLists(res.lists);
+      saveStoredLists(res.lists);
+      setItems(res.items || []);
+      saveStoredItems(res.items || []);
+
+      if (targetInviteId && res.lists.some((l) => l.id === targetInviteId)) {
+        setActiveListId(targetInviteId);
+        try {
+          sessionStorage.removeItem('listinha_pending_invite');
+        } catch {}
+      } else if (!activeListId || !res.lists.some((l) => l.id === activeListId)) {
+        setActiveListId(res.lists[0].id);
+      }
+    }
+  };
+
+  // When already logged in on mount, sync with cloud immediately
+  useEffect(() => {
+    if (currentUser) {
+      syncUserSessionWithCloud(currentUser, inviteListId);
+    }
+  }, []);
 
   // Realtime subscriber for updates from cloud polling & other tabs
   useEffect(() => {
     const unsub = realtime.subscribe((payload) => {
       if (payload.type === 'SYNC_FULL') {
-        if (payload.list) {
+        if (payload.lists && payload.lists.length > 0) {
+          setLists(payload.lists);
+          saveStoredLists(payload.lists);
+        } else if (payload.list) {
           setLists((prev) => {
             const exists = prev.some((l) => l.id === payload.list!.id);
             const updated = exists
@@ -125,8 +143,10 @@ export const App: React.FC = () => {
             return updated;
           });
         }
-        setItems(payload.items);
-        saveStoredItems(payload.items);
+        if (Array.isArray(payload.items)) {
+          setItems(payload.items);
+          saveStoredItems(payload.items);
+        }
       } else if (payload.type === 'ITEM_TOGGLE') {
         setItems((prev) => {
           const updated = prev.map((item) =>
@@ -183,48 +203,15 @@ export const App: React.FC = () => {
   }, []);
 
   // Login handler
-  const handleLogin = (user: User) => {
+  const handleLogin = async (user: User) => {
     setCurrentUser(user);
     saveStoredUser(user);
-
-    // If logging in via invite link, join that list in the cloud!
-    if (inviteListId) {
-      joinCloudList(inviteListId, user).then((res) => {
-        if (res.exists && res.list) {
-          const initialLists = [res.list];
-          setLists(initialLists);
-          saveStoredLists(initialLists);
-          setActiveListId(res.list.id);
-          setItems(res.items);
-          saveStoredItems(res.items);
-        } else {
-          // Fallback to default list
-          createCleanUserList(user);
-        }
-      });
-    } else {
-      createCleanUserList(user);
-    }
-  };
-
-  const createCleanUserList = (user: User) => {
-    const existing = getStoredLists(user);
-    if (existing.length === 0) {
-      const defaultList = createDefaultUserList(user);
-      const initialLists = [defaultList];
-      setLists(initialLists);
-      saveStoredLists(initialLists);
-      setActiveListId(defaultList.id);
-      saveCloudList(defaultList);
-    } else {
-      setLists(existing);
-      setActiveListId(existing[0].id);
-      saveCloudList(existing[0]);
-    }
+    await syncUserSessionWithCloud(user, inviteListId);
   };
 
   // Logout handler
   const handleLogout = () => {
+    realtime.stopPolling();
     logoutAndClearSession();
     setCurrentUser(null);
     setLists([]);
@@ -232,7 +219,7 @@ export const App: React.FC = () => {
     setActiveListId('');
   };
 
-  // If user is not logged in, show the clean Apple Login Screen Gate!
+  // If user is not logged in, show the Login Screen Gate
   if (!currentUser) {
     return <LoginScreen onLogin={handleLogin} inviteListId={inviteListId} />;
   }
@@ -246,7 +233,6 @@ export const App: React.FC = () => {
 
   // Filtered items based on filter mode and search
   const filteredItems = currentListItems.filter((item) => {
-    // Search
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
       const matchesName = item.name.toLowerCase().includes(q);
@@ -255,7 +241,6 @@ export const App: React.FC = () => {
       if (!matchesName && !matchesCat && !matchesAssignee) return false;
     }
 
-    // Filter mode
     if (filterMode === 'pending') return !item.completed;
     if (filterMode === 'completed') return item.completed;
     if (filterMode === 'my_items') return item.assignedTo?.id === currentUser.id;
@@ -297,7 +282,6 @@ export const App: React.FC = () => {
     setItems(updatedItems);
     saveStoredItems(updatedItems);
 
-    // Broadcast in real-time to cloud backend & tabs
     realtime.broadcast({
       type: 'ITEM_TOGGLE',
       itemId,
@@ -306,7 +290,6 @@ export const App: React.FC = () => {
       updatedAt: now,
     });
 
-    // If this completed the entire list, trigger celebration
     if (nextCompleted) {
       const pendingBefore = currentListItems.filter((i) => !i.completed);
       if (pendingBefore.length === 1 && pendingBefore[0].id === itemId) {
@@ -334,6 +317,9 @@ export const App: React.FC = () => {
     const updated = [newItem, ...items];
     setItems(updated);
     saveStoredItems(updated);
+
+    // Ensure the list itself also exists in cloud
+    saveCloudList(currentList);
 
     realtime.broadcast({
       type: 'ITEM_ADD',
@@ -440,30 +426,38 @@ export const App: React.FC = () => {
     });
   };
 
-  // Add family member
+  // Add family member by email -> sync list & items immediately so when they log in with that email, they see the list!
   const handleAddFamilyMember = (name: string, email: string) => {
+    const cleanEmail = email.trim().toLowerCase();
     const newMember: User = {
-      id: `usr_fam_${Date.now()}`,
+      id: `usr_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`,
       name,
-      email: email || `${name.toLowerCase().replace(/\s+/g, '')}@listinha.com`,
+      email: cleanEmail,
       avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random&color=fff&size=256&bold=true`,
       color: '#0A84FF',
     };
 
-    const updatedLists = lists.map((l) =>
-      l.id === currentList.id
-        ? {
-            ...l,
-            collaborators: [...l.collaborators, newMember],
-            eventDetails: l.eventDetails
-              ? {
-                  ...l.eventDetails,
-                  participants: [...l.eventDetails.participants, newMember],
-                }
-              : undefined,
-          }
-        : l
-    );
+    const updatedLists = lists.map((l) => {
+      if (l.id !== currentList.id) return l;
+      const alreadyExists = l.collaborators.some(
+        (c) => c.email.toLowerCase() === cleanEmail
+      );
+      const nextCollabs = alreadyExists ? l.collaborators : [...l.collaborators, newMember];
+      return {
+        ...l,
+        collaborators: nextCollabs,
+        eventDetails: l.eventDetails
+          ? {
+              ...l.eventDetails,
+              participants: l.eventDetails.participants.some(
+                (p) => p.email.toLowerCase() === cleanEmail
+              )
+                ? l.eventDetails.participants
+                : [...l.eventDetails.participants, newMember],
+            }
+          : undefined,
+      };
+    });
 
     setLists(updatedLists);
     saveStoredLists(updatedLists);
@@ -473,8 +467,15 @@ export const App: React.FC = () => {
       realtime.broadcast({
         type: 'LIST_UPDATE',
         list: updatedCurrent,
+        items: currentListItems,
       });
     }
+  };
+
+  // Open Share Modal -> force sync current list & items to cloud
+  const handleOpenShare = () => {
+    saveCloudList(currentList, currentListItems);
+    setIsShareModalOpen(true);
   };
 
   return (
@@ -484,7 +485,7 @@ export const App: React.FC = () => {
         currentList={currentList}
         currentUser={currentUser}
         syncStatus={syncStatus}
-        onOpenShare={() => setIsShareModalOpen(true)}
+        onOpenShare={handleOpenShare}
         onOpenAuth={() => setIsAuthModalOpen(true)}
         onOpenNewList={() => setIsNewListModalOpen(true)}
       />
@@ -495,7 +496,7 @@ export const App: React.FC = () => {
         <div className="mb-3">
           <ListTabs
             lists={lists}
-            activeListId={activeListId}
+            activeListId={currentList.id}
             onSelectList={setActiveListId}
             onOpenNewListModal={() => setIsNewListModalOpen(true)}
           />
@@ -517,7 +518,7 @@ export const App: React.FC = () => {
             </div>
             <button
               type="button"
-              onClick={() => setIsShareModalOpen(true)}
+              onClick={handleOpenShare}
               className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs transition-all active:scale-95 shadow-sm shadow-purple-600/30 flex items-center gap-1.5"
             >
               <Share2 className="w-3 h-3" />

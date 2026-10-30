@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, LogOut, Trash2, ShieldCheck, UserPlus, Check, Users } from 'lucide-react';
+import { X, LogOut, ShieldCheck, UserPlus, Users, Mail } from 'lucide-react';
 import { ShoppingList, User } from '../types';
 import { sound } from '../utils/audio';
 
@@ -28,9 +28,9 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
 
   const handleAddMemberSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMemberName.trim()) return;
+    if (!newMemberName.trim() || !newMemberEmail.trim()) return;
     sound.playSuccess();
-    onAddFamilyMember(newMemberName.trim(), newMemberEmail.trim());
+    onAddFamilyMember(newMemberName.trim(), newMemberEmail.trim().toLowerCase());
     setNewMemberName('');
     setNewMemberEmail('');
     setIsAddingMember(false);
@@ -45,29 +45,14 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shadow-md">
-              <svg className="w-4 h-4" viewBox="0 0 24 24">
-                <path
-                  fill="#4285F4"
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                />
-                <path
-                  fill="#EA4335"
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                />
-              </svg>
-            </div>
+            <img
+              src={currentUser.avatar}
+              alt={currentUser.name}
+              className="w-8 h-8 rounded-full object-cover ring-1 ring-blue-500"
+            />
             <div>
-              <h2 className="text-base font-bold text-white tracking-tight">Sua Conta Google</h2>
-              <p className="text-xs text-slate-400">Gerenciar sessão e família</p>
+              <h2 className="text-base font-bold text-white tracking-tight">Sua Conta & Membros</h2>
+              <p className="text-xs text-slate-400">Gerenciar acesso à lista</p>
             </div>
           </div>
           <button
@@ -94,7 +79,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
               </div>
               <span className="text-xs text-slate-400 block truncate">{currentUser.email}</span>
               <span className="inline-block mt-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.2 rounded-full border border-emerald-500/20">
-                Sessão Google Ativa
+                Conectado e Sincronizado
               </span>
             </div>
           </div>
@@ -105,36 +90,47 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5 text-blue-400" />
-              Pessoas nesta lista ({currentList.collaborators.length}):
+              Membros desta lista ({currentList.collaborators.length}):
             </span>
             <button
               type="button"
               onClick={() => setIsAddingMember(!isAddingMember)}
-              className="text-xs text-blue-400 hover:text-blue-300 font-medium transition-colors"
+              className="text-xs text-blue-400 hover:text-blue-300 font-semibold transition-colors"
             >
-              {isAddingMember ? 'Cancelar' : '+ Adicionar pessoa'}
+              {isAddingMember ? 'Cancelar' : '+ Adicionar membro por e-mail'}
             </button>
           </div>
 
           {isAddingMember && (
-            <form onSubmit={handleAddMemberSubmit} className="p-3 bg-white/[0.04] rounded-2xl border border-white/10 space-y-2.5 mb-3 animate-fade-in">
+            <form
+              onSubmit={handleAddMemberSubmit}
+              className="p-3.5 bg-white/[0.04] rounded-2xl border border-white/10 space-y-3 mb-3 animate-fade-in"
+            >
+              <p className="text-[11px] text-slate-300 leading-relaxed">
+                Ao adicionar o e-mail de outra pessoa aqui, assim que ela entrar no app com esse mesmo e-mail, <strong>esta lista aparecerá automaticamente para ela</strong>:
+              </p>
               <div>
-                <label className="text-[11px] text-slate-400 block mb-1">Nome (ex: Esposa, Filho, João):</label>
+                <label className="text-[11px] text-slate-400 block mb-1">
+                  Nome da pessoa:
+                </label>
                 <input
                   type="text"
                   required
                   autoFocus
-                  placeholder="Nome do familiar ou amigo"
+                  placeholder="Ex: Nome do cônjuge, filho ou amigo"
                   value={newMemberName}
                   onChange={(e) => setNewMemberName(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/15 text-white placeholder-slate-500 text-xs focus:outline-none focus:border-blue-500"
                 />
               </div>
               <div>
-                <label className="text-[11px] text-slate-400 block mb-1">E-mail (opcional):</label>
+                <label className="text-[11px] text-slate-400 block mb-1">
+                  E-mail da pessoa (obrigatório para vincular):
+                </label>
                 <input
                   type="email"
-                  placeholder="email@gmail.com"
+                  required
+                  placeholder="emaildapessoa@gmail.com"
                   value={newMemberEmail}
                   onChange={(e) => setNewMemberEmail(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/15 text-white placeholder-slate-500 text-xs focus:outline-none focus:border-blue-500"
@@ -142,10 +138,10 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
               </div>
               <button
                 type="submit"
-                className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5"
+                className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-blue-600/20"
               >
                 <UserPlus className="w-3.5 h-3.5" />
-                <span>Salvar Pessoa na Lista</span>
+                <span>Autorizar e Compartilhar Lista</span>
               </button>
             </form>
           )}
@@ -153,21 +149,27 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
           <div className="space-y-1.5">
             {currentList.collaborators.map((collab) => (
               <div
-                key={collab.id}
-                className="flex items-center justify-between p-2 rounded-xl bg-white/[0.02] border border-white/5"
+                key={collab.id + collab.email}
+                className="flex items-center justify-between p-2.5 rounded-xl bg-white/[0.02] border border-white/5"
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
                   <img
                     src={collab.avatar}
                     alt={collab.name}
-                    className="w-6 h-6 rounded-full object-cover ring-1 ring-white/15"
+                    className="w-7 h-7 rounded-full object-cover ring-1 ring-white/15 flex-shrink-0"
                   />
-                  <span className="text-xs text-slate-200">
-                    {collab.name} {collab.id === currentUser.id && '(Você)'}
-                  </span>
+                  <div className="min-w-0">
+                    <span className="text-xs font-medium text-slate-200 block truncate">
+                      {collab.name}{' '}
+                      {collab.email.toLowerCase() === currentUser.email.toLowerCase() && '(Você)'}
+                    </span>
+                    <span className="text-[10px] text-slate-500 block truncate">
+                      {collab.email}
+                    </span>
+                  </div>
                 </div>
-                <span className="text-[10px] text-slate-400">
-                  {collab.id === currentList.ownerId ? 'Criador' : 'Membro'}
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-slate-400 flex-shrink-0">
+                  {collab.id === currentList.ownerId ? 'Criador' : 'Convidado'}
                 </span>
               </div>
             ))}
@@ -179,7 +181,11 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
           <button
             type="button"
             onClick={() => {
-              if (window.confirm('Deseja realmente sair da conta Google? Você voltará para a tela de login.')) {
+              if (
+                window.confirm(
+                  'Deseja sair da sua conta? Você voltará para a tela inicial de login.'
+                )
+              ) {
                 sound.playStep();
                 onLogout();
                 onClose();
@@ -188,7 +194,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
             className="w-full py-2.5 px-4 rounded-xl bg-red-500/10 hover:bg-red-500/20 active:scale-98 text-red-400 font-semibold text-xs flex items-center justify-center gap-2 border border-red-500/20 transition-all"
           >
             <LogOut className="w-3.5 h-3.5" />
-            <span>Sair da Conta (Logout)</span>
+            <span>Sair da Conta (Trocar Usuário)</span>
           </button>
         </div>
       </div>
