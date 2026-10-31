@@ -46,6 +46,8 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
   const [customQuantity, setCustomQuantity] = useState('');
   const [assignedTo, setAssignedTo] = useState<User | undefined>(undefined);
   const [autoDetected, setAutoDetected] = useState(false);
+  const [manualCategory, setManualCategory] = useState(false);
+  const [manualQuantity, setManualQuantity] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [showCustomInput, setShowCustomInput] = useState(false);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
@@ -87,18 +89,26 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
     const trimmed = name.trim();
     if (trimmed.length >= 2) {
       const smart = detectSmartCategory(trimmed);
-      setCategory(smart.category);
-      setQuantityType(smart.quantityType);
-      setQuantity(smart.defaultQuantity);
-      if (smart.weightPreset) {
-        setWeightPreset(smart.weightPreset);
+      if (!manualCategory) {
+        setCategory(smart.category);
       }
-      setUnitLabel(smart.unitLabel);
+      if (!manualQuantity) {
+        setQuantityType(smart.quantityType);
+        setQuantity(smart.quantityType === 'weight' ? 100 : 1);
+        if (smart.quantityType === 'weight') {
+          setWeightPreset('100g');
+          setUnitLabel('g');
+        } else {
+          setUnitLabel(smart.unitLabel || 'un');
+        }
+      }
       setAutoDetected(true);
     } else if (trimmed.length === 0) {
       setAutoDetected(false);
+      setManualCategory(false);
+      setManualQuantity(false);
     }
-  }, [name]);
+  }, [name, manualCategory, manualQuantity]);
 
   // Prevent button taps from blurring the text input so the keyboard stays open & steady like WhatsApp
   const keepKeyboardOpen = (e: React.MouseEvent | React.PointerEvent) => {
@@ -107,6 +117,7 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
 
   const handleDecrement = () => {
     sound.playStep();
+    setManualQuantity(true);
     if (quantityType === 'unit') {
       if (quantity > 1) setQuantity(quantity - 1);
     } else {
@@ -124,6 +135,7 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
 
   const handleIncrement = () => {
     sound.playStep();
+    setManualQuantity(true);
     if (quantityType === 'unit') {
       setQuantity(quantity + 1);
     } else {
@@ -140,6 +152,7 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
 
   const handleSelectWeightPreset = (preset: '100g' | '500g' | '1kg') => {
     sound.playStep();
+    setManualQuantity(true);
     setShowCustomInput(false);
     setQuantityType('weight');
     const grams = preset === '100g' ? 100 : preset === '500g' ? 500 : 1000;
@@ -150,6 +163,7 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
 
   const toggleQuantityMode = () => {
     sound.playStep();
+    setManualQuantity(true);
     setShowCustomInput(false);
     if (quantityType === 'unit') {
       setQuantityType('weight');
@@ -179,9 +193,13 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
     sound.playStep();
     onAddingModeChange?.(true);
 
+    const finalCategory = manualCategory
+      ? category
+      : detectSmartCategory(name.trim()).category;
+
     onAddItem({
       name: name.trim(),
-      category,
+      category: finalCategory,
       quantityType: showCustomInput && customQuantity.trim() ? 'custom' : quantityType,
       quantity,
       weightPreset,
@@ -207,6 +225,8 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
     setCustomQuantity('');
     setShowCustomInput(false);
     setAutoDetected(false);
+    setManualCategory(false);
+    setManualQuantity(false);
 
     // Keep focus inside input so user can type next item immediately like WhatsApp
     requestAnimationFrame(() => {
@@ -371,6 +391,7 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
                     onMouseDown={keepKeyboardOpen}
                     onClick={() => {
                       sound.playStep();
+                      setManualCategory(true);
                       setCategory(cat.id);
                     }}
                     className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-all border flex-shrink-0 ${

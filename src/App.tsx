@@ -14,7 +14,7 @@ import {
 } from './services/storage';
 import { realtime } from './services/realtime';
 import { verifyUserSession, saveCloudList, deleteCloudList } from './services/api';
-import { CATEGORIES } from './utils/categories';
+import { CATEGORIES, detectSmartCategory } from './utils/categories';
 import { sound } from './utils/audio';
 
 import { Header } from './components/Header';
@@ -255,8 +255,18 @@ export const App: React.FC = () => {
   const currentList =
     lists.find((l) => l.id === activeListId) || lists[0] || createDefaultUserList(currentUser);
 
-  // Current list items
-  const currentListItems = items.filter((i) => i.listId === currentList.id);
+  // Current list items (auto-upgrading any legacy fallback 'mercearia' items that match Brazilian slang/brands)
+  const currentListItems = items
+    .filter((i) => i.listId === currentList.id)
+    .map((item) => {
+      if (item.category === 'mercearia') {
+        const smartCat = detectSmartCategory(item.name).category;
+        if (smartCat !== 'mercearia') {
+          return { ...item, category: smartCat };
+        }
+      }
+      return item;
+    });
 
   // Filtered items based on filter mode and search
   const filteredItems = currentListItems.filter((item) => {
