@@ -34,7 +34,13 @@ interface LoginScreenProps {
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, inviteListId }) => {
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => {
+    try {
+      return localStorage.getItem('listinha_saved_email') || '';
+    } catch {
+      return '';
+    }
+  });
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
@@ -155,6 +161,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, invite
         return;
       }
 
+      try {
+        localStorage.setItem('listinha_saved_email', cleanEmail);
+      } catch {}
       sound.playSuccess();
       onLoginSuccess({
         user: res.user,
@@ -176,6 +185,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, invite
         return;
       }
 
+      try {
+        localStorage.setItem('listinha_saved_email', cleanEmail);
+      } catch {}
       sound.playSuccess();
       onLoginSuccess({
         user: res.user,
@@ -274,6 +286,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, invite
                 <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
                 <input
                   type="email"
+                  name="email"
+                  autoComplete="username email"
                   required
                   placeholder="seuemail@gmail.com"
                   value={email}
@@ -293,6 +307,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, invite
                 <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
                 <input
                   type={showPassword ? 'text' : 'password'}
+                  name="password"
+                  autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
                   required
                   minLength={authMode === 'register' ? 6 : 1}
                   placeholder={

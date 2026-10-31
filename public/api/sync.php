@@ -9,13 +9,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit();
 }
 
+// Store SQLite database OUTSIDE public_html so static deployments never wipe user accounts or lists!
+$persistentCandidates = [
+    dirname(__DIR__, 2) . '/.listinha_storage', // /home/<user>/domains/<domain>/.listinha_storage (outside public_html)
+    dirname(__DIR__, 4) . '/.listinha_storage', // /home/<user>/.listinha_storage
+    __DIR__ . '/data'                           // local fallback
+];
+
 $dataDir = __DIR__ . '/data';
-if (!file_exists($dataDir)) {
-    mkdir($dataDir, 0755, true);
-    file_put_contents($dataDir . '/.htaccess', "Order Deny,Allow\nDeny from all\n");
+foreach ($persistentCandidates as $candidate) {
+    if (!file_exists($candidate)) {
+        @mkdir($candidate, 0755, true);
+    }
+    if (file_exists($candidate) && is_writable($candidate)) {
+        $dataDir = $candidate;
+        break;
+    }
+}
+
+if (!file_exists($dataDir . '/.htaccess')) {
+    @file_put_contents($dataDir . '/.htaccess', "Order Deny,Allow\nDeny from all\n");
 }
 
 $dbFile = $dataDir . '/listinha.sqlite';
+
+// Migrate legacy database inside public_html/api/data if it exists and persistent DB doesn't exist yet
+$legacyDbFile = __DIR__ . '/data/listinha.sqlite';
+if ($dbFile !== $legacyDbFile && file_exists($legacyDbFile) && !file_exists($dbFile)) {
+    @copy($legacyDbFile, $dbFile);
+}
 
 function getDb() {
     global $dbFile;
@@ -389,7 +411,10 @@ try {
         }
 
         $now = time() * 1000;
-        $sessionToken = bin2hex(random_bytes(32));
+        // Keep existing session_token if present so logging in on a 2nd device never logs out the 1st device
+        $sessionToken = !empty($userRow['session_token'])
+            ? $userRow['session_token']
+            : bin2hex(random_bytes(32));
         $stmtUpd = $db->prepare("UPDATE users SET session_token = ?, updated_at = ? WHERE id = ?");
         $stmtUpd->execute([$sessionToken, $now, $userRow['id']]);
 
@@ -453,8 +478,17 @@ try {
         $avatar = $googleProfile['picture'] ?? ('https://ui-avatars.com/api/?name=' . urlencode($name) . '&background=0A84FF&color=fff&size=256&bold=true');
         $googleSub = $googleProfile['sub'] ?? '';
         $now = time() * 1000;
-        $sessionToken = bin2hex(random_bytes(32));
-        $userId = 'usr_' . preg_replace('/[^a-zA-Z0-9]/', '_', $email);
+
+        $stmtExisting = $db->prepare("SELECT id, session_token FROM users WHERE email = ?");
+        $stmtExisting->execute([$email]);
+        $exRow = $stmtExisting->fetch(PDO::FETCH_ASSOC);
+
+        $sessionToken = ($exRow && !empty($exRow['session_token']))
+            ? $exRow['session_token']
+            : bin2hex(random_bytes(32));
+        $userId = ($exRow && !empty($exRow['id']))
+            ? $exRow['id']
+            : ('usr_' . preg_replace('/[^a-zA-Z0-9]/', '_', $email));
 
         $stmtIns = $db->prepare("
             INSERT INTO users (id, name, email, avatar, google_sub, session_token, created_at, updated_at)
@@ -507,11 +541,29 @@ try {
         }
 
         $email = strtolower(trim($user['email']));
-        $stmt = $db->prepare("SELECT * FROM users WHERE email = ? AND session_token = ?");
-        $stmt->execute([$email, $user['sessionToken']]);
+        $stmt = $db->prepare("SELECT * FROM users WHERE email = ?");
+        $stmt->execute([$email]);
         $userRow = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$userRow) {
+            // If user had a valid 64-char hex server token before a deploy, restore their session seamlessly
+            if (preg_match('/^[a-f0-9]{64}$/', $user['sessionToken']) && !empty($user['name'])) {
+                $now = time() * 1000;
+                $userId = $user['id'] ?? ('usr_' . preg_replace('/[^a-zA-Z0-9]/', '_', $email));
+                $avatar = $user['avatar'] ?? ('https://ui-avatars.com/api/?name=' . urlencode($user['name']) . '&background=0A84FF&color=fff&size=256&bold=true');
+                $stmtRestore = $db->prepare("
+                    INSERT INTO users (id, name, email, avatar, session_token, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ");
+                $stmtRestore->execute([$userId, $user['name'], $email, $avatar, $user['sessionToken'], $now, $now]);
+                $stmt->execute([$email]);
+                $userRow = $stmt->fetch(PDO::FETCH_ASSOC);
+            } else {
+                http_response_code(401);
+                echo json_encode(['valid' => false, 'error' => 'Sessão expirada. Faça login novamente.']);
+                exit();
+            }
+        } elseif ($userRow['session_token'] !== $user['sessionToken']) {
             http_response_code(401);
             echo json_encode(['valid' => false, 'error' => 'Sessão expirada. Faça login novamente.']);
             exit();
