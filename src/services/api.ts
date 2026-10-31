@@ -261,6 +261,18 @@ export async function clearCloudCompleted(listId: string): Promise<void> {
   }
 }
 
+export async function deleteCloudList(listId: string): Promise<void> {
+  try {
+    await fetch(`${API_BASE}?action=delete_list`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ list_id: listId }),
+    });
+  } catch (err) {
+    console.warn('Could not delete cloud list:', err);
+  }
+}
+
 export async function pollCloudUpdates(
   listId: string,
   userId?: string,

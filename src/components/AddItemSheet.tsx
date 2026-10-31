@@ -6,8 +6,9 @@ import {
   Scale,
   Package,
   Sparkles,
-  ChevronDown,
+  Check,
   Edit3,
+  Layers,
 } from 'lucide-react';
 import { ListItem, QuantityType, ShoppingList, User, WeightPreset } from '../types';
 import { CATEGORIES, detectSmartCategory } from '../utils/categories';
@@ -20,9 +21,12 @@ interface AddItemSheetProps {
   currentList: ShoppingList;
   currentUser: User;
   onKeyboardOffsetChange?: (offsetPx: number) => void;
+  onAddingModeChange?: (isAdding: boolean) => void;
 }
 
-const WEIGHT_STEPS = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1500, 2000, 2500, 3000, 5000];
+const WEIGHT_STEPS = [
+  100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1500, 2000, 2500, 3000, 5000,
+];
 
 export const AddItemSheet: React.FC<AddItemSheetProps> = ({
   isOpen,
@@ -31,6 +35,7 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
   currentList,
   currentUser,
   onKeyboardOffsetChange,
+  onAddingModeChange,
 }) => {
   const [name, setName] = useState('');
   const [category, setCategory] = useState('mercearia');
@@ -47,12 +52,14 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
 
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // When triggered externally (e.g. "Adicionar Primeiro Item" button), focus the WhatsApp input bar
+  // When triggered externally (e.g. "Começar a Digitar" button), focus the WhatsApp input bar
   useEffect(() => {
     if (isOpen && inputRef.current) {
       inputRef.current.focus();
+      setIsFocused(true);
+      onAddingModeChange?.(true);
     }
-  }, [isOpen]);
+  }, [isOpen, onAddingModeChange]);
 
   // Track mobile virtual keyboard height via visualViewport (WhatsApp-style push-up behavior)
   useEffect(() => {
@@ -156,11 +163,21 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
     }
   };
 
+  const handleFinishAndCategorize = () => {
+    sound.playSuccess();
+    setIsFocused(false);
+    setShowCustomInput(false);
+    onAddingModeChange?.(false);
+    onClose();
+    inputRef.current?.blur();
+  };
+
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!name.trim()) return;
 
     sound.playStep();
+    onAddingModeChange?.(true);
 
     onAddItem({
       name: name.trim(),
@@ -221,9 +238,9 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
         {/* Compact Context Strip right above the input (never hidden by keyboard) */}
         {showExpandedStrip && (
           <div className="space-y-1.5 mb-2 animate-fade-in">
-            {/* Row 1: Unit vs Weight (100g / 500g / 1kg / Custom) + Close Keyboard button */}
+            {/* Row 1: Unit vs Weight (100g / 500g / 1kg / Custom) + Finish & Categorize Button */}
             <div className="flex items-center justify-between gap-1.5 overflow-x-auto scrollbar-none">
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
                 {/* Switch Unidade / Quilo */}
                 <button
                   type="button"
@@ -235,14 +252,14 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
                     setQuantity(1);
                     setUnitLabel('un');
                   }}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-semibold transition-all border ${
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-semibold transition-all border flex-shrink-0 ${
                     quantityType === 'unit' && !showCustomInput
                       ? 'bg-blue-600 text-white border-blue-400 shadow-sm'
                       : 'bg-white/5 text-slate-400 border-white/10 hover:text-white'
                   }`}
                 >
                   <Package className="w-3 h-3" />
-                  <span>Unidade</span>
+                  <span>Un</span>
                 </button>
 
                 <button
@@ -255,19 +272,19 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
                     if (quantity < 100) setQuantity(100);
                     setUnitLabel(quantity >= 1000 ? 'kg' : 'g');
                   }}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-semibold transition-all border ${
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-semibold transition-all border flex-shrink-0 ${
                     quantityType === 'weight' && !showCustomInput
                       ? 'bg-blue-600 text-white border-blue-400 shadow-sm'
                       : 'bg-white/5 text-slate-400 border-white/10 hover:text-white'
                   }`}
                 >
                   <Scale className="w-3 h-3" />
-                  <span>Kg / g</span>
+                  <span>Kg/g</span>
                 </button>
 
                 {/* Weight Quick Presets: 100g, 500g, 1kg */}
                 {quantityType === 'weight' && !showCustomInput && (
-                  <div className="flex items-center gap-1 ml-1 pl-1.5 border-l border-white/10">
+                  <div className="flex items-center gap-1 ml-0.5 pl-1 border-l border-white/10 flex-shrink-0">
                     {(['100g', '500g', '1kg'] as const).map((preset) => {
                       const active =
                         (preset === '100g' && quantity === 100) ||
@@ -300,29 +317,26 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
                     sound.playStep();
                     setShowCustomInput(!showCustomInput);
                   }}
-                  className={`flex items-center gap-1 px-2 py-1 rounded-xl text-[11px] font-medium transition-all border ${
+                  className={`flex items-center gap-1 px-2 py-1 rounded-xl text-[11px] font-medium transition-all border flex-shrink-0 ${
                     showCustomInput
                       ? 'bg-purple-600 text-white border-purple-400'
                       : 'bg-white/5 text-slate-400 border-white/10 hover:text-white'
                   }`}
                 >
                   <Edit3 className="w-2.5 h-2.5" />
-                  <span>Específico</span>
+                  <span>Outro</span>
                 </button>
               </div>
 
-              {/* Minimize / Dismiss keyboard button */}
+              {/* Finish Adding & Separate by Categories Button */}
               <button
                 type="button"
-                onClick={() => {
-                  setIsFocused(false);
-                  onClose();
-                  inputRef.current?.blur();
-                }}
-                className="flex items-center gap-0.5 px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] text-slate-400 hover:text-white flex-shrink-0"
-                title="Recolher teclado"
+                onClick={handleFinishAndCategorize}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-[11px] font-bold text-emerald-300 hover:text-white flex-shrink-0 transition-all active:scale-95"
+                title="Terminar adição e separar itens por categoria"
               >
-                <ChevronDown className="w-3.5 h-3.5" />
+                <Check className="w-3 h-3 stroke-[3]" />
+                <span>Pronto • Categorizar</span>
               </button>
             </div>
 
@@ -429,7 +443,10 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
               enterKeyHint="send"
               placeholder="Adicionar item (ex: Arroz, Picanha)..."
               value={name}
-              onFocus={() => setIsFocused(true)}
+              onFocus={() => {
+                setIsFocused(true);
+                onAddingModeChange?.(true);
+              }}
               onChange={(e) => setName(e.target.value)}
               className="flex-1 bg-transparent text-white placeholder-slate-400 text-sm font-medium focus:outline-none min-w-0 py-1.5"
             />

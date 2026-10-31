@@ -6,6 +6,7 @@ import {
   deleteCloudItem,
   clearCloudCompleted,
   saveCloudList,
+  deleteCloudList,
 } from './api';
 
 type MessagePayload =
@@ -21,6 +22,7 @@ type MessagePayload =
   | { type: 'ITEM_DELETE'; itemId: string }
   | { type: 'ITEMS_CLEAR_COMPLETED'; listId: string }
   | { type: 'LIST_UPDATE'; list: ShoppingList; items?: ListItem[] }
+  | { type: 'LIST_DELETE'; listId: string }
   | { type: 'SYNC_FULL'; list?: ShoppingList; lists?: ShoppingList[]; items: ListItem[] };
 
 type SyncCallback = (payload: MessagePayload) => void;
@@ -164,6 +166,8 @@ class RealtimeSyncManager {
       clearCloudCompleted(payload.listId).finally(() => this.setStatus('connected'));
     } else if (payload.type === 'LIST_UPDATE') {
       saveCloudList(payload.list, payload.items).finally(() => this.setStatus('connected'));
+    } else if (payload.type === 'LIST_DELETE') {
+      deleteCloudList(payload.listId).finally(() => this.setStatus('connected'));
     } else {
       setTimeout(() => this.setStatus('connected'), 300);
     }

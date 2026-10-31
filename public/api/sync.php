@@ -754,6 +754,24 @@ try {
         exit();
     }
 
+    // 7B. DELETE ENTIRE LIST & ITS ITEMS
+    if ($action === 'delete_list') {
+        $listId = $input['list_id'] ?? '';
+        if (!$listId) {
+            http_response_code(400);
+            echo json_encode(['error' => 'list_id required']);
+            exit();
+        }
+        $stmtItems = $db->prepare("DELETE FROM items WHERE list_id = ?");
+        $stmtItems->execute([$listId]);
+
+        $stmtList = $db->prepare("DELETE FROM lists WHERE id = ?");
+        $stmtList->execute([$listId]);
+
+        echo json_encode(['success' => true, 'deleted_list_id' => $listId]);
+        exit();
+    }
+
     // 8. REALTIME POLL
     if ($action === 'poll') {
         $listId = $_GET['list_id'] ?? '';

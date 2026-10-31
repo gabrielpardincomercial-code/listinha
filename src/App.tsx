@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import confetti from 'canvas-confetti';
-import { Plus, Search, Share2 } from 'lucide-react';
+import { Plus, Search, Share2, Layers, ListOrdered, Check } from 'lucide-react';
 import { ListItem, ShoppingList, SyncStatus, User } from './types';
 import {
   getStoredUser,
@@ -13,7 +13,7 @@ import {
   createDefaultUserList,
 } from './services/storage';
 import { realtime } from './services/realtime';
-import { verifyUserSession, saveCloudList } from './services/api';
+import { verifyUserSession, saveCloudList, deleteCloudList } from './services/api';
 import { CATEGORIES } from './utils/categories';
 import { sound } from './utils/audio';
 
@@ -21,6 +21,7 @@ import { Header } from './components/Header';
 import { ListTabs } from './components/ListTabs';
 import { SummaryStats } from './components/SummaryStats';
 import { CategoryGroup } from './components/CategoryGroup';
+import { ItemRow } from './components/ItemRow';
 import { AddItemSheet } from './components/AddItemSheet';
 import { ShareModal } from './components/ShareModal';
 import { GoogleAuthModal } from './components/GoogleAuthModal';
@@ -68,6 +69,8 @@ export const App: React.FC = () => {
   // Filter & Search state
   const [filterMode, setFilterMode] = useState<'all' | 'pending' | 'completed' | 'my_items'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState<'order' | 'categories'>('categories');
+  const [isAddingMode, setIsAddingMode] = useState(false);
 
   // Modals state
   const [isAddSheetOpen, setIsAddSheetOpen] = useState(false);
@@ -199,6 +202,17 @@ export const App: React.FC = () => {
           saveStoredLists(updated);
           return updated;
         });
+      } else if (payload.type === 'LIST_DELETE') {
+        setLists((prev) => {
+          const remaining = prev.filter((l) => l.id !== payload.listId);
+          saveStoredLists(remaining);
+          return remaining;
+        });
+        setItems((prev) => {
+          const remainingItems = prev.filter((i) => i.listId !== payload.listId);
+          saveStoredItems(remainingItems);
+          return remainingItems;
+        });
       }
     });
 
@@ -270,6 +284,9 @@ export const App: React.FC = () => {
     };
   }).filter((g) => g.items.length > 0);
 
+  // Items in exact order of addition (newest at the very top, uncategorized)
+  const orderedItems = [...filteredItems].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
   // Completed items count in current list
   const completedCount = currentListItems.filter((i) => i.completed).length;
 
@@ -317,7 +334,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // Add Item
+  // Add Item -> puts at the top in flat order while adding!
   const handleAddItem = (data: Omit<ListItem, 'id' | 'createdAt' | 'completed' | 'listId'>) => {
     const newItem: ListItem = {
       ...data,
@@ -330,6 +347,9 @@ export const App: React.FC = () => {
     const updated = [newItem, ...items];
     setItems(updated);
     saveStoredItems(updated);
+
+    // Automatically show in addition order (newest on top, uncategorized) while adding
+    setViewMode('order');
 
     // Ensure the list itself also exists in cloud
     saveCloudList(currentList);
@@ -439,6 +459,49 @@ export const App: React.FC = () => {
     });
   };
 
+  // Delete list
+  const handleDeleteList = (listIdToDelete: string) => {
+    const remainingItems = items.filter((i) => i.listId !== listIdToDelete);
+    setItems(remainingItems);
+    saveStoredItems(remainingItems);
+
+    const remainingLists = lists.filter((l) => l.id !== listIdToDelete);
+    deleteCloudList(listIdToDelete);
+
+    realtime.broadcast({
+      type: 'LIST_DELETE',
+      listId: listIdToDelete,
+    });
+
+    if (remainingLists.length > 0) {
+      setLists(remainingLists);
+      saveStoredLists(remainingLists);
+      if (activeListId === listIdToDelete) {
+        setActiveListId(remainingLists[0].id);
+      }
+    } else {
+      // If user deleted their last list, create a fresh empty list for them
+      const freshList: ShoppingList = {
+        ...createDefaultUserList(currentUser),
+        id: `list_familia_${currentUser.id}_${Date.now()}`,
+      };
+      setLists([freshList]);
+      saveStoredLists([freshList]);
+      setActiveListId(freshList.id);
+      saveCloudList(freshList, []);
+    }
+  };
+
+  // Handle switching between adding mode (flat order on top) and finished mode (grouped by category)
+  const handleAddingModeChange = (adding: boolean) => {
+    setIsAddingMode(adding);
+    if (adding) {
+      setViewMode('order');
+    } else {
+      setViewMode('categories');
+    }
+  };
+
   // Add family member by email -> sync list & items immediately so when they log in with that email, they see the list!
   const handleAddFamilyMember = (name: string, email: string) => {
     const cleanEmail = email.trim().toLowerCase();
@@ -508,90 +571,168 @@ export const App: React.FC = () => {
 
       {/* Main Container */}
       <main className="max-w-3xl w-full mx-auto px-4 pt-3 flex-1">
-        {/* List Selector Tabs */}
+        {/* List Selector Tabs + Delete List button */}
         <div className="mb-3">
           <ListTabs
             lists={lists}
             activeListId={currentList.id}
             onSelectList={setActiveListId}
             onOpenNewListModal={() => setIsNewListModalOpen(true)}
+            onDeleteList={handleDeleteList}
           />
         </div>
 
-        {/* Temporary list banner if Happy Hour / Event */}
-        {currentList.type === 'temporary' && currentList.eventDetails && (
-          <div className="mb-4 p-3.5 bg-gradient-to-r from-purple-900/30 to-indigo-900/30 rounded-2xl border border-purple-500/20 backdrop-blur-md flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <span className="text-2xl">🎉</span>
-              <div>
-                <span className="text-xs font-bold text-purple-200 block">
-                  Evento com Divisão de Tarefas
-                </span>
-                <span className="text-[11px] text-purple-300/80 block">
-                  {currentList.eventDetails.date} • {currentList.eventDetails.location}
-                </span>
+        {/* Hide bulky banners while actively typing with keyboard open so newly added items stay right at the top */}
+        {!(isAddingMode && keyboardOffset > 0) && (
+          <>
+            {/* Temporary list banner if Happy Hour / Event */}
+            {currentList.type === 'temporary' && currentList.eventDetails && (
+              <div className="mb-4 p-3.5 bg-gradient-to-r from-purple-900/30 to-indigo-900/30 rounded-2xl border border-purple-500/20 backdrop-blur-md flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-2xl">🎉</span>
+                  <div>
+                    <span className="text-xs font-bold text-purple-200 block">
+                      Evento com Divisão de Tarefas
+                    </span>
+                    <span className="text-[11px] text-purple-300/80 block">
+                      {currentList.eventDetails.date} • {currentList.eventDetails.location}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleOpenShare}
+                  className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs transition-all active:scale-95 shadow-sm shadow-purple-600/30 flex items-center gap-1.5"
+                >
+                  <Share2 className="w-3 h-3" />
+                  <span>Convidar</span>
+                </button>
               </div>
+            )}
+
+            {/* Summary Stats & Progress Bar */}
+            <SummaryStats
+              list={currentList}
+              totalItems={currentListItems.length}
+              completedItems={completedCount}
+              currentUser={currentUser}
+              filterMode={filterMode}
+              onFilterChange={setFilterMode}
+              onClearCompleted={handleClearCompleted}
+            />
+
+            {/* Search Input */}
+            <div className="relative mb-3">
+              <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+              <input
+                type="text"
+                placeholder="Buscar por item, categoria ou pessoa..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white/[0.04] border border-white/10 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:bg-white/[0.07] transition-all"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-2.5 text-xs text-slate-400 hover:text-white"
+                >
+                  Limpar
+                </button>
+              )}
             </div>
-            <button
-              type="button"
-              onClick={handleOpenShare}
-              className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs transition-all active:scale-95 shadow-sm shadow-purple-600/30 flex items-center gap-1.5"
-            >
-              <Share2 className="w-3 h-3" />
-              <span>Convidar</span>
-            </button>
+          </>
+        )}
+
+        {/* View Mode Bar: Ordem de Adição (no topo) vs Separado por Categoria */}
+        {currentListItems.length > 0 && (
+          <div className="flex items-center justify-between gap-2 mb-3 p-1.5 rounded-2xl bg-white/[0.03] border border-white/10">
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  sound.playStep();
+                  setViewMode('order');
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                  viewMode === 'order'
+                    ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/30'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <ListOrdered className="w-3.5 h-3.5" />
+                <span>Ordem de Adição</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  sound.playStep();
+                  setViewMode('categories');
+                  setIsAddingMode(false);
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                  viewMode === 'categories'
+                    ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/30'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Por Categoria</span>
+              </button>
+            </div>
+
+            {viewMode === 'order' && (
+              <button
+                type="button"
+                onClick={() => {
+                  sound.playSuccess();
+                  setViewMode('categories');
+                  setIsAddingMode(false);
+                }}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-xs font-bold text-emerald-300 transition-all active:scale-95"
+              >
+                <Check className="w-3.5 h-3.5 stroke-[3]" />
+                <span>Separar por Categoria</span>
+              </button>
+            )}
           </div>
         )}
 
-        {/* Summary Stats & Progress Bar */}
-        <SummaryStats
-          list={currentList}
-          totalItems={currentListItems.length}
-          completedItems={completedCount}
-          currentUser={currentUser}
-          filterMode={filterMode}
-          onFilterChange={setFilterMode}
-          onClearCompleted={handleClearCompleted}
-        />
-
-        {/* Search Input */}
-        <div className="relative mb-4">
-          <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-          <input
-            type="text"
-            placeholder="Buscar por item, categoria ou pessoa..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white/[0.04] border border-white/10 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:bg-white/[0.07] transition-all"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-2.5 text-xs text-slate-400 hover:text-white"
-            >
-              Limpar
-            </button>
-          )}
-        </div>
-
-        {/* Grocery Items grouped by Category */}
-        {groupedCategories.length > 0 ? (
-          <div className="space-y-2">
-            {groupedCategories.map(({ category, items }) => (
-              <CategoryGroup
-                key={category.id}
-                category={category}
-                items={items}
-                list={currentList}
-                currentUser={currentUser}
-                onToggleComplete={handleToggleComplete}
-                onUpdateQuantity={handleUpdateQuantity}
-                onDelete={handleDeleteItem}
-                onAssignItem={handleAssignItem}
-              />
-            ))}
-          </div>
+        {/* Grocery Items: Either Flat Addition Order (newest on top) OR Grouped by Category */}
+        {filteredItems.length > 0 ? (
+          viewMode === 'order' ? (
+            <div className="space-y-2">
+              {orderedItems.map((item) => (
+                <ItemRow
+                  key={item.id}
+                  item={item}
+                  list={currentList}
+                  currentUser={currentUser}
+                  onToggleComplete={handleToggleComplete}
+                  onUpdateQuantity={handleUpdateQuantity}
+                  onDelete={handleDeleteItem}
+                  onAssignItem={handleAssignItem}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {groupedCategories.map(({ category, items }) => (
+                <CategoryGroup
+                  key={category.id}
+                  category={category}
+                  items={items}
+                  list={currentList}
+                  currentUser={currentUser}
+                  onToggleComplete={handleToggleComplete}
+                  onUpdateQuantity={handleUpdateQuantity}
+                  onDelete={handleDeleteItem}
+                  onAssignItem={handleAssignItem}
+                />
+              ))}
+            </div>
+          )
         ) : (
           /* Empty State */
           <div className="py-10 px-4 text-center rounded-3xl bg-white/[0.02] border border-white/5 my-4">
@@ -628,6 +769,7 @@ export const App: React.FC = () => {
         currentList={currentList}
         currentUser={currentUser}
         onKeyboardOffsetChange={setKeyboardOffset}
+        onAddingModeChange={handleAddingModeChange}
       />
 
       {/* Share Modal with QR Code and WhatsApp */}
