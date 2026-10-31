@@ -1,8 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { X, Sparkles, Plus, Check } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  SendHorizontal,
+  Minus,
+  Plus,
+  Scale,
+  Package,
+  Sparkles,
+  ChevronDown,
+  Edit3,
+} from 'lucide-react';
 import { ListItem, QuantityType, ShoppingList, User, WeightPreset } from '../types';
 import { CATEGORIES, detectSmartCategory } from '../utils/categories';
-import { QuantitySelector } from './QuantitySelector';
 import { sound } from '../utils/audio';
 
 interface AddItemSheetProps {
@@ -11,7 +19,10 @@ interface AddItemSheetProps {
   onAddItem: (itemData: Omit<ListItem, 'id' | 'createdAt' | 'completed' | 'listId'>) => void;
   currentList: ShoppingList;
   currentUser: User;
+  onKeyboardOffsetChange?: (offsetPx: number) => void;
 }
+
+const WEIGHT_STEPS = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1500, 2000, 2500, 3000, 5000];
 
 export const AddItemSheet: React.FC<AddItemSheetProps> = ({
   isOpen,
@@ -19,6 +30,7 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
   onAddItem,
   currentList,
   currentUser,
+  onKeyboardOffsetChange,
 }) => {
   const [name, setName] = useState('');
   const [category, setCategory] = useState('mercearia');
@@ -29,11 +41,45 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
   const [customQuantity, setCustomQuantity] = useState('');
   const [assignedTo, setAssignedTo] = useState<User | undefined>(undefined);
   const [autoDetected, setAutoDetected] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
+  const [showCustomInput, setShowCustomInput] = useState(false);
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
+
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // When triggered externally (e.g. "Adicionar Primeiro Item" button), focus the WhatsApp input bar
+  useEffect(() => {
+    if (isOpen && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isOpen]);
+
+  // Track mobile virtual keyboard height via visualViewport (WhatsApp-style push-up behavior)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.visualViewport) return;
+
+    const vv = window.visualViewport;
+    const updateViewport = () => {
+      const offset = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+      setKeyboardOffset(offset);
+      onKeyboardOffsetChange?.(offset);
+    };
+
+    vv.addEventListener('resize', updateViewport);
+    vv.addEventListener('scroll', updateViewport);
+    updateViewport();
+
+    return () => {
+      vv.removeEventListener('resize', updateViewport);
+      vv.removeEventListener('scroll', updateViewport);
+    };
+  }, [onKeyboardOffsetChange]);
 
   // Auto-detect category & quantity defaults as user types
   useEffect(() => {
-    if (name.trim().length >= 3) {
-      const smart = detectSmartCategory(name);
+    const trimmed = name.trim();
+    if (trimmed.length >= 2) {
+      const smart = detectSmartCategory(trimmed);
       setCategory(smart.category);
       setQuantityType(smart.quantityType);
       setQuantity(smart.defaultQuantity);
@@ -42,13 +88,76 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
       }
       setUnitLabel(smart.unitLabel);
       setAutoDetected(true);
+    } else if (trimmed.length === 0) {
+      setAutoDetected(false);
     }
   }, [name]);
 
-  if (!isOpen) return null;
-
-  const handleSubmit = (e: React.FormEvent) => {
+  // Prevent button taps from blurring the text input so the keyboard stays open & steady like WhatsApp
+  const keepKeyboardOpen = (e: React.MouseEvent | React.PointerEvent) => {
     e.preventDefault();
+  };
+
+  const handleDecrement = () => {
+    sound.playStep();
+    if (quantityType === 'unit') {
+      if (quantity > 1) setQuantity(quantity - 1);
+    } else {
+      const prevSteps = [...WEIGHT_STEPS].reverse();
+      const prev = prevSteps.find((s) => s < quantity);
+      const nextVal = prev !== undefined ? prev : 100;
+      setQuantity(nextVal);
+      setUnitLabel(nextVal >= 1000 ? 'kg' : 'g');
+      if (nextVal === 100) setWeightPreset('100g');
+      else if (nextVal === 500) setWeightPreset('500g');
+      else if (nextVal === 1000) setWeightPreset('1kg');
+      else setWeightPreset('custom');
+    }
+  };
+
+  const handleIncrement = () => {
+    sound.playStep();
+    if (quantityType === 'unit') {
+      setQuantity(quantity + 1);
+    } else {
+      const next = WEIGHT_STEPS.find((s) => s > quantity);
+      const nextVal = next !== undefined ? next : quantity + 500;
+      setQuantity(nextVal);
+      setUnitLabel(nextVal >= 1000 ? 'kg' : 'g');
+      if (nextVal === 100) setWeightPreset('100g');
+      else if (nextVal === 500) setWeightPreset('500g');
+      else if (nextVal === 1000) setWeightPreset('1kg');
+      else setWeightPreset('custom');
+    }
+  };
+
+  const handleSelectWeightPreset = (preset: '100g' | '500g' | '1kg') => {
+    sound.playStep();
+    setShowCustomInput(false);
+    setQuantityType('weight');
+    const grams = preset === '100g' ? 100 : preset === '500g' ? 500 : 1000;
+    setQuantity(grams);
+    setWeightPreset(preset);
+    setUnitLabel(grams >= 1000 ? 'kg' : 'g');
+  };
+
+  const toggleQuantityMode = () => {
+    sound.playStep();
+    setShowCustomInput(false);
+    if (quantityType === 'unit') {
+      setQuantityType('weight');
+      setQuantity(100);
+      setWeightPreset('100g');
+      setUnitLabel('g');
+    } else {
+      setQuantityType('unit');
+      setQuantity(1);
+      setUnitLabel('un');
+    }
+  };
+
+  const handleSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!name.trim()) return;
 
     sound.playStep();
@@ -56,118 +165,204 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
     onAddItem({
       name: name.trim(),
       category,
-      quantityType,
+      quantityType: showCustomInput && customQuantity.trim() ? 'custom' : quantityType,
       quantity,
       weightPreset,
       unitLabel,
-      customQuantity: customQuantity.trim() || undefined,
+      customQuantity: showCustomInput && customQuantity.trim() ? customQuantity.trim() : undefined,
       createdBy: { id: currentUser.id, name: currentUser.name },
       assignedTo: assignedTo
-        ? { id: assignedTo.id, name: assignedTo.name, avatar: assignedTo.avatar, color: assignedTo.color }
+        ? {
+            id: assignedTo.id,
+            name: assignedTo.name,
+            avatar: assignedTo.avatar,
+            color: assignedTo.color,
+          }
         : undefined,
     });
 
-    // Reset fields
+    // Reset item name & reset quantity to default for next quick entry (keeping keyboard open!)
     setName('');
-    setCategory('mercearia');
     setQuantityType('unit');
     setQuantity(1);
     setWeightPreset('100g');
     setUnitLabel('un');
     setCustomQuantity('');
-    setAssignedTo(undefined);
+    setShowCustomInput(false);
     setAutoDetected(false);
-    onClose();
+
+    // Keep focus inside input so user can type next item immediately like WhatsApp
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
   };
 
+  const formattedQuantity =
+    showCustomInput && customQuantity.trim()
+      ? customQuantity.trim()
+      : quantityType === 'unit'
+      ? `${quantity} un`
+      : quantity >= 1000
+      ? `${(quantity / 1000) % 1 === 0 ? quantity / 1000 : (quantity / 1000).toFixed(1)}kg`
+      : `${quantity}g`;
+
   const selectedCategoryObj = CATEGORIES.find((c) => c.id === category) || CATEGORIES[0];
+  const showExpandedStrip = isFocused || name.trim().length > 0 || isOpen;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-md animate-fade-in">
-      <div
-        className="w-full max-w-lg bg-[#0e131f] border border-white/15 rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 shadow-2xl shadow-black/80 max-h-[90vh] overflow-y-auto animate-slide-up sm:animate-pop-in"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-4">
-          <div className="flex items-center gap-2">
-            <span className="text-xl">✨</span>
-            <h2 className="text-lg font-bold text-white tracking-tight">Adicionar à Lista</h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-slate-300 hover:text-white transition-all active:scale-95"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+    <div
+      style={{
+        bottom: `${keyboardOffset}px`,
+        paddingBottom: keyboardOffset > 0 ? '6px' : 'calc(env(safe-area-inset-bottom, 0px) + 8px)',
+      }}
+      className="fixed left-0 right-0 z-40 bg-[#0b0f19]/95 backdrop-blur-2xl border-t border-white/15 shadow-[0_-10px_30px_rgba(0,0,0,0.6)] transition-[bottom] duration-75"
+    >
+      <div className="max-w-3xl mx-auto px-2.5 pt-2">
+        {/* Compact Context Strip right above the input (never hidden by keyboard) */}
+        {showExpandedStrip && (
+          <div className="space-y-1.5 mb-2 animate-fade-in">
+            {/* Row 1: Unit vs Weight (100g / 500g / 1kg / Custom) + Close Keyboard button */}
+            <div className="flex items-center justify-between gap-1.5 overflow-x-auto scrollbar-none">
+              <div className="flex items-center gap-1">
+                {/* Switch Unidade / Quilo */}
+                <button
+                  type="button"
+                  onMouseDown={keepKeyboardOpen}
+                  onClick={() => {
+                    sound.playStep();
+                    setShowCustomInput(false);
+                    setQuantityType('unit');
+                    setQuantity(1);
+                    setUnitLabel('un');
+                  }}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-semibold transition-all border ${
+                    quantityType === 'unit' && !showCustomInput
+                      ? 'bg-blue-600 text-white border-blue-400 shadow-sm'
+                      : 'bg-white/5 text-slate-400 border-white/10 hover:text-white'
+                  }`}
+                >
+                  <Package className="w-3 h-3" />
+                  <span>Unidade</span>
+                </button>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Item Name Input */}
-          <div>
-            <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-              O que você precisa comprar?
-            </label>
-            <div className="relative">
-              <input
-                type="text"
-                autoFocus
-                placeholder="Ex: Banana, Leite, Picanha, Cerveja..."
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full px-4 py-3 rounded-2xl bg-black/50 border border-white/15 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm font-medium transition-all"
-              />
-              {autoDetected && (
-                <div className="absolute right-3 top-3 flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                  <Sparkles className="w-3 h-3" />
-                  <span>Auto-detectado</span>
-                </div>
-              )}
+                <button
+                  type="button"
+                  onMouseDown={keepKeyboardOpen}
+                  onClick={() => {
+                    sound.playStep();
+                    setShowCustomInput(false);
+                    setQuantityType('weight');
+                    if (quantity < 100) setQuantity(100);
+                    setUnitLabel(quantity >= 1000 ? 'kg' : 'g');
+                  }}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-semibold transition-all border ${
+                    quantityType === 'weight' && !showCustomInput
+                      ? 'bg-blue-600 text-white border-blue-400 shadow-sm'
+                      : 'bg-white/5 text-slate-400 border-white/10 hover:text-white'
+                  }`}
+                >
+                  <Scale className="w-3 h-3" />
+                  <span>Kg / g</span>
+                </button>
+
+                {/* Weight Quick Presets: 100g, 500g, 1kg */}
+                {quantityType === 'weight' && !showCustomInput && (
+                  <div className="flex items-center gap-1 ml-1 pl-1.5 border-l border-white/10">
+                    {(['100g', '500g', '1kg'] as const).map((preset) => {
+                      const active =
+                        (preset === '100g' && quantity === 100) ||
+                        (preset === '500g' && quantity === 500) ||
+                        (preset === '1kg' && quantity === 1000);
+                      return (
+                        <button
+                          key={preset}
+                          type="button"
+                          onMouseDown={keepKeyboardOpen}
+                          onClick={() => handleSelectWeightPreset(preset)}
+                          className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                            active
+                              ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                              : 'bg-white/10 text-slate-300 hover:bg-white/15'
+                          }`}
+                        >
+                          {preset}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Custom specific weight/measure toggle */}
+                <button
+                  type="button"
+                  onMouseDown={keepKeyboardOpen}
+                  onClick={() => {
+                    sound.playStep();
+                    setShowCustomInput(!showCustomInput);
+                  }}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-xl text-[11px] font-medium transition-all border ${
+                    showCustomInput
+                      ? 'bg-purple-600 text-white border-purple-400'
+                      : 'bg-white/5 text-slate-400 border-white/10 hover:text-white'
+                  }`}
+                >
+                  <Edit3 className="w-2.5 h-2.5" />
+                  <span>Específico</span>
+                </button>
+              </div>
+
+              {/* Minimize / Dismiss keyboard button */}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsFocused(false);
+                  onClose();
+                  inputRef.current?.blur();
+                }}
+                className="flex items-center gap-0.5 px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] text-slate-400 hover:text-white flex-shrink-0"
+                title="Recolher teclado"
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
             </div>
-          </div>
 
-          {/* Quantity Selector Component */}
-          <div>
-            <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-              Quantidade & Medida
-            </label>
-            <QuantitySelector
-              quantityType={quantityType}
-              quantity={quantity}
-              weightPreset={weightPreset}
-              unitLabel={unitLabel}
-              customQuantity={customQuantity}
-              onChange={(data) => {
-                setQuantityType(data.quantityType);
-                setQuantity(data.quantity);
-                if (data.weightPreset) setWeightPreset(data.weightPreset);
-                setUnitLabel(data.unitLabel);
-                if (data.customQuantity !== undefined) setCustomQuantity(data.customQuantity);
-              }}
-            />
-          </div>
+            {/* Optional Custom Specific Measure Input */}
+            {showCustomInput && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="Digite o peso ou medida exata (ex: 350g, 1.8kg, 2 caixas)..."
+                  value={customQuantity}
+                  onChange={(e) => setCustomQuantity(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded-xl bg-black/60 border border-purple-500/40 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-400"
+                />
+              </div>
+            )}
 
-          {/* Category Chips Selector */}
-          <div>
-            <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-              Categoria (Corredor do Supermercado)
-            </label>
-            <div className="flex gap-1.5 overflow-x-auto pb-2 scrollbar-none">
+            {/* Row 2: Horizontal Category Chips + Temporary List Participant Assignment */}
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
+              {autoDetected && (
+                <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/15 px-2 py-0.5 rounded-full border border-emerald-500/30 flex-shrink-0">
+                  <Sparkles className="w-2.5 h-2.5" />
+                  Auto
+                </span>
+              )}
+
               {CATEGORIES.map((cat) => {
                 const isSelected = cat.id === category;
                 return (
                   <button
                     key={cat.id}
                     type="button"
+                    onMouseDown={keepKeyboardOpen}
                     onClick={() => {
                       sound.playStep();
                       setCategory(cat.id);
                     }}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all border ${
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-all border flex-shrink-0 ${
                       isSelected
-                        ? 'bg-blue-600 text-white border-blue-400 shadow-sm shadow-blue-500/30 font-semibold'
-                        : 'bg-white/5 text-slate-300 hover:bg-white/10 border-white/10'
+                        ? 'bg-blue-600/90 text-white border-blue-400 font-semibold shadow-sm'
+                        : 'bg-white/[0.04] text-slate-400 border-white/10 hover:bg-white/10 hover:text-slate-200'
                     }`}
                   >
                     <span>{cat.icon}</span>
@@ -175,67 +370,122 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
                   </button>
                 );
               })}
+
+              {/* If Temporary / Happy Hour List: quick assignee pills */}
+              {currentList.type === 'temporary' && currentList.eventDetails?.participants && (
+                <>
+                  <div className="h-3.5 w-[1px] bg-white/15 mx-1 flex-shrink-0" />
+                  {currentList.eventDetails.participants.map((p) => {
+                    const isSelected = assignedTo?.id === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onMouseDown={keepKeyboardOpen}
+                        onClick={() => {
+                          sound.playStep();
+                          setAssignedTo(isSelected ? undefined : p);
+                        }}
+                        className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border whitespace-nowrap flex-shrink-0 transition-all ${
+                          isSelected
+                            ? 'bg-purple-600 text-white border-purple-400 font-semibold'
+                            : 'bg-white/5 text-slate-300 border-white/10'
+                        }`}
+                      >
+                        <img
+                          src={p.avatar}
+                          alt={p.name}
+                          className="w-3.5 h-3.5 rounded-full object-cover"
+                        />
+                        <span>{p.name.split(' ')[0]}</span>
+                      </button>
+                    );
+                  })}
+                </>
+              )}
             </div>
           </div>
+        )}
 
-          {/* If Temporary List: Person Assignment Chips */}
-          {currentList.type === 'temporary' && currentList.eventDetails?.participants && (
-            <div>
-              <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                Designar para quem levar / comprar:
-              </label>
-              <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-                <button
-                  type="button"
-                  onClick={() => setAssignedTo(undefined)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${
-                    !assignedTo
-                      ? 'bg-white/20 text-white border-white/30 font-semibold'
-                      : 'bg-white/5 text-slate-400 border-white/10'
-                  }`}
-                >
-                  Qualquer um
-                </button>
-                {currentList.eventDetails.participants.map((p) => {
-                  const isSelected = assignedTo?.id === p.id;
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => {
-                        sound.playStep();
-                        setAssignedTo(p);
-                      }}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${
-                        isSelected
-                          ? 'bg-purple-600 text-white border-purple-400 font-semibold shadow-sm'
-                          : 'bg-white/5 text-slate-300 border-white/10'
-                      }`}
-                    >
-                      <img src={p.avatar} alt={p.name} className="w-4 h-4 rounded-full object-cover" />
-                      <span>{p.name.split(' ')[0]}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Submit Button */}
-          <div className="pt-2">
+        {/* Main WhatsApp-Style Composer Row: [Item Input] + [- Qty +] + [Send Arrow Button] */}
+        <form onSubmit={handleSubmit} className="flex items-center gap-1.5">
+          {/* Unified Pill containing Item Input + Inline Stepper */}
+          <div className="flex-1 flex items-center bg-[#161c2a] border border-white/15 focus-within:border-blue-500/80 rounded-full pl-3 pr-1.5 py-1 shadow-inner transition-colors min-w-0">
+            {/* Selected Category Emoji Indicator */}
             <button
-              type="submit"
-              disabled={!name.trim()}
-              className={`w-full py-3.5 px-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-lg active:scale-98 ${
-                name.trim()
-                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-blue-600/30'
-                  : 'bg-white/10 text-slate-500 cursor-not-allowed'
-              }`}
+              type="button"
+              onMouseDown={keepKeyboardOpen}
+              onClick={() => setIsFocused((prev) => !prev)}
+              className="text-base mr-2 flex-shrink-0 hover:scale-110 transition-transform"
+              title={`Categoria: ${selectedCategoryObj.name}`}
             >
-              <Plus className="w-4 h-4 stroke-[3]" />
-              <span>Adicionar à Lista</span>
+              {selectedCategoryObj.icon}
             </button>
+
+            {/* Item Name Input */}
+            <input
+              ref={inputRef}
+              type="text"
+              enterKeyHint="send"
+              placeholder="Adicionar item (ex: Arroz, Picanha)..."
+              value={name}
+              onFocus={() => setIsFocused(true)}
+              onChange={(e) => setName(e.target.value)}
+              className="flex-1 bg-transparent text-white placeholder-slate-400 text-sm font-medium focus:outline-none min-w-0 py-1.5"
+            />
+
+            {/* Inline Quantity Controls right inside the bar */}
+            <div className="flex items-center gap-1 bg-black/40 border border-white/10 rounded-full px-1 py-0.5 ml-1 flex-shrink-0">
+              <button
+                type="button"
+                onMouseDown={keepKeyboardOpen}
+                onClick={handleDecrement}
+                disabled={
+                  (quantityType === 'unit' && quantity <= 1) ||
+                  (quantityType === 'weight' && quantity <= 100)
+                }
+                className="w-6 h-6 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 disabled:opacity-30 active:scale-90 transition-all"
+                aria-label="Diminuir quantidade"
+              >
+                <Minus className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                onMouseDown={keepKeyboardOpen}
+                onClick={toggleQuantityMode}
+                title="Toque para alternar entre Unidade (un) e Peso (g/kg)"
+                className="px-1.5 text-xs font-extrabold text-blue-400 hover:text-blue-300 tabular-nums whitespace-nowrap"
+              >
+                {formattedQuantity}
+              </button>
+
+              <button
+                type="button"
+                onMouseDown={keepKeyboardOpen}
+                onClick={handleIncrement}
+                className="w-6 h-6 rounded-full flex items-center justify-center bg-blue-600/80 hover:bg-blue-500 text-white active:scale-90 transition-all"
+                aria-label="Aumentar quantidade"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
+
+          {/* WhatsApp-Style Right Arrow Send Button */}
+          <button
+            type="submit"
+            onMouseDown={keepKeyboardOpen}
+            disabled={!name.trim()}
+            aria-label="Adicionar item"
+            className={`w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 transition-all shadow-lg ${
+              name.trim()
+                ? 'bg-gradient-to-tr from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 scale-100 active:scale-90 shadow-emerald-500/30 cursor-pointer'
+                : 'bg-white/10 text-slate-500 cursor-not-allowed'
+            }`}
+          >
+            <SendHorizontal className="w-5 h-5 stroke-[2.5] translate-x-0.5" />
+          </button>
         </form>
       </div>
     </div>

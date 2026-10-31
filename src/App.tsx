@@ -71,6 +71,7 @@ export const App: React.FC = () => {
 
   // Modals state
   const [isAddSheetOpen, setIsAddSheetOpen] = useState(false);
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isNewListModalOpen, setIsNewListModalOpen] = useState(false);
@@ -491,7 +492,10 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#07090e] pb-28 text-slate-100 flex flex-col selection:bg-blue-600/30">
+    <div
+      style={{ paddingBottom: `${keyboardOffset + 150}px` }}
+      className="min-h-screen bg-[#07090e] text-slate-100 flex flex-col selection:bg-blue-600/30 transition-[padding-bottom] duration-75"
+    >
       {/* Liquid Glass Header */}
       <Header
         currentList={currentList}
@@ -590,7 +594,7 @@ export const App: React.FC = () => {
           </div>
         ) : (
           /* Empty State */
-          <div className="py-12 px-4 text-center rounded-3xl bg-white/[0.02] border border-white/5 my-4">
+          <div className="py-10 px-4 text-center rounded-3xl bg-white/[0.02] border border-white/5 my-4">
             <div className="w-16 h-16 rounded-full bg-blue-500/10 text-blue-400 mx-auto flex items-center justify-center text-3xl mb-3 shadow-inner">
               🛒
             </div>
@@ -600,7 +604,7 @@ export const App: React.FC = () => {
             <p className="text-xs text-slate-400 max-w-sm mx-auto mb-4">
               {searchQuery
                 ? `Não encontramos resultados para "${searchQuery}". Tente outro termo.`
-                : 'Toque no botão abaixo para adicionar os itens que você precisa comprar no supermercado.'}
+                : 'Digite o item na barra estilo WhatsApp logo abaixo, ajuste a quantidade e toque na setinha para adicionar!'}
             </p>
             {!searchQuery && (
               <button
@@ -609,42 +613,21 @@ export const App: React.FC = () => {
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold text-xs shadow-lg shadow-blue-500/30 hover:from-blue-500 hover:to-indigo-500 active:scale-95 transition-all"
               >
                 <Plus className="w-4 h-4 stroke-[3]" />
-                <span>Adicionar Primeiro Item</span>
+                <span>Começar a Digitar</span>
               </button>
             )}
           </div>
         )}
       </main>
 
-      {/* Apple Floating Action Bottom Bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 p-4 pointer-events-none">
-        <div className="max-w-lg mx-auto pointer-events-auto">
-          <button
-            type="button"
-            onClick={() => {
-              sound.playStep();
-              setIsAddSheetOpen(true);
-            }}
-            className="w-full py-4 px-6 rounded-3xl bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm sm:text-base flex items-center justify-center gap-2.5 shadow-2xl shadow-blue-600/50 border border-white/20 backdrop-blur-xl active:scale-98 transition-all duration-200 group"
-          >
-            <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Plus className="w-4 h-4 stroke-[3] text-white" />
-            </div>
-            <span>Adicionar à Lista</span>
-            <span className="text-xs font-normal text-blue-200 ml-1 opacity-90 hidden sm:inline">
-              (Unidades ou Quilos)
-            </span>
-          </button>
-        </div>
-      </div>
-
-      {/* Add Item Bottom Sheet */}
+      {/* WhatsApp-Style Keyboard-Aware Composer Bar */}
       <AddItemSheet
         isOpen={isAddSheetOpen}
         onClose={() => setIsAddSheetOpen(false)}
         onAddItem={handleAddItem}
         currentList={currentList}
         currentUser={currentUser}
+        onKeyboardOffsetChange={setKeyboardOffset}
       />
 
       {/* Share Modal with QR Code and WhatsApp */}
