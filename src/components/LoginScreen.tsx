@@ -21,6 +21,7 @@ import {
   googleOAuthLogin,
 } from '../services/api';
 import { sound } from '../utils/audio';
+import { BrandLogo } from './BrandLogo';
 
 interface LoginScreenProps {
   onLoginSuccess: (data: {
@@ -207,12 +208,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, invite
         {/* App Logo & Header */}
         <div className="text-center mb-6">
           <div className="relative inline-block mb-3">
-            <div className="w-18 h-18 rounded-3xl bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-700 p-3.5 shadow-2xl shadow-blue-500/30 flex items-center justify-center mx-auto border border-white/20">
-              <span className="text-3xl">🛒</span>
-            </div>
-            <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-500 rounded-full border-2 border-[#07090e] flex items-center justify-center">
-              <Sparkles className="w-3.5 h-3.5 text-white" />
-            </div>
+            <BrandLogo size="lg" />
           </div>
 
           <h1 className="text-3xl font-extrabold text-white tracking-tight">Listinha</h1>

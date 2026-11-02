@@ -27,6 +27,7 @@ import { ShareModal } from './components/ShareModal';
 import { GoogleAuthModal } from './components/GoogleAuthModal';
 import { NewListModal } from './components/NewListModal';
 import { LoginScreen } from './components/LoginScreen';
+import { BrandLogo } from './components/BrandLogo';
 
 export const App: React.FC = () => {
   const inviteListId = useMemo(() => {
@@ -752,8 +753,8 @@ export const App: React.FC = () => {
           )
         ) : (
           <div className="py-10 px-4 text-center rounded-3xl bg-white/[0.02] border border-white/5 my-3">
-            <div className="w-14 h-14 rounded-full bg-blue-500/10 text-blue-400 mx-auto flex items-center justify-center text-2xl mb-3 shadow-inner">
-              🛒
+            <div className="mx-auto flex items-center justify-center mb-3">
+              <BrandLogo size="md" />
             </div>
             <h3 className="text-sm sm:text-base font-bold text-white mb-1">
               {searchQuery ? 'Nenhum item encontrado' : 'Sua lista está limpa e vazia'}

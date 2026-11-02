@@ -1,6 +1,7 @@
 import React from 'react';
 import { Share2, Radio } from 'lucide-react';
 import { ShoppingList, SyncStatus, User } from '../types';
+import { BrandLogo } from './BrandLogo';
 
 interface HeaderProps {
   currentList: ShoppingList;
@@ -27,14 +28,7 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="max-w-3xl mx-auto px-3.5 h-14 flex items-center justify-between gap-2">
         {/* Brand & Active List */}
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
-          <div className="relative flex-shrink-0">
-            <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-700 p-0.5 shadow-lg shadow-blue-500/20 flex items-center justify-center">
-              <span className="text-lg">🛒</span>
-            </div>
-            <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#090b10] flex items-center justify-center">
-              <div className="w-1.5 h-1.5 bg-white rounded-full animate-ping opacity-75" />
-            </div>
-          </div>
+          <BrandLogo size="sm" showBadge />
 
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
