@@ -11,6 +11,7 @@ interface AddItemSheetProps {
   currentList: ShoppingList;
   currentUser: User;
   onAddingModeChange?: (isAdding: boolean) => void;
+  isKeyboardOpen?: boolean;
 }
 
 const WEIGHT_STEPS = [
@@ -23,6 +24,7 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
   onAddItem,
   currentUser,
   onAddingModeChange,
+  isKeyboardOpen = false,
 }) => {
   const [name, setName] = useState('');
   const [category, setCategory] = useState('mercearia');
@@ -34,7 +36,6 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
 
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Focus input when requested externally
   useEffect(() => {
     if (isOpen && inputRef.current) {
       inputRef.current.focus();
@@ -64,7 +65,6 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
     }
   }, [name, manualQuantity]);
 
-  // Keep keyboard open when tapping quantity or send buttons
   const keepKeyboardOpen = (e: React.MouseEvent | React.PointerEvent) => {
     e.preventDefault();
   };
@@ -93,7 +93,6 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
     if (quantityType === 'unit') {
       setQuantity(quantity + 1);
     } else {
-      // Quick jump 100g -> 500g -> 1kg -> +500g
       let nextVal = quantity + 500;
       if (quantity === 100) nextVal = 500;
       else if (quantity === 500) nextVal = 1000;
@@ -110,7 +109,6 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
     }
   };
 
-  // Tapping the unit/quantity badge cycles between Unidade (1 un) and Peso (100g -> 500g -> 1kg)
   const toggleQuantityMode = () => {
     sound.playStep();
     setManualQuantity(true);
@@ -134,8 +132,7 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
     }
   };
 
-  const handleSubmit = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
+  const handleSend = () => {
     if (!name.trim()) return;
 
     sound.playStep();
@@ -153,7 +150,6 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
       createdBy: { id: currentUser.id, name: currentUser.name },
     });
 
-    // Reset for next item while keeping keyboard open
     setName('');
     setQuantityType('unit');
     setQuantity(1);
@@ -176,17 +172,21 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
   return (
     <div
       style={{
-        paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)',
+        paddingBottom: isKeyboardOpen
+          ? '6px'
+          : 'calc(env(safe-area-inset-bottom, 0px) + 8px)',
       }}
       className="w-full flex-shrink-0 bg-[#0b0f19] border-t border-white/15 pt-2 px-2.5 z-40"
     >
       <div className="max-w-3xl mx-auto">
-        <form onSubmit={handleSubmit} className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
           {/* Unified Pill: [Item Text Input] + [- Quantity/Unit +] */}
           <div className="flex-1 flex items-center bg-[#161c2a] border border-white/15 focus-within:border-blue-500/80 rounded-full pl-4 pr-1.5 py-1 shadow-inner min-w-0">
             <input
               ref={inputRef}
               type="text"
+              autoComplete="off"
+              autoCorrect="on"
               enterKeyHint="send"
               placeholder="Digite o item..."
               value={name}
@@ -194,6 +194,12 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
               onBlur={() => {
                 onClose();
                 onAddingModeChange?.(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleSend();
+                }
               }}
               onChange={(e) => setName(e.target.value)}
               className="flex-1 bg-transparent text-white placeholder-slate-400 text-sm font-medium focus:outline-none min-w-0 py-1.5"
@@ -203,6 +209,7 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
             <div className="flex items-center gap-0.5 bg-black/50 border border-white/10 rounded-full px-1 py-0.5 ml-1.5 flex-shrink-0">
               <button
                 type="button"
+                tabIndex={-1}
                 onPointerDown={keepKeyboardOpen}
                 onMouseDown={keepKeyboardOpen}
                 onClick={handleDecrement}
@@ -218,6 +225,7 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
 
               <button
                 type="button"
+                tabIndex={-1}
                 onPointerDown={keepKeyboardOpen}
                 onMouseDown={keepKeyboardOpen}
                 onClick={toggleQuantityMode}
@@ -229,6 +237,7 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
 
               <button
                 type="button"
+                tabIndex={-1}
                 onPointerDown={keepKeyboardOpen}
                 onMouseDown={keepKeyboardOpen}
                 onClick={handleIncrement}
@@ -242,9 +251,11 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
 
           {/* WhatsApp-Style Send Arrow Button */}
           <button
-            type="submit"
+            type="button"
+            tabIndex={-1}
             onPointerDown={keepKeyboardOpen}
             onMouseDown={keepKeyboardOpen}
+            onClick={handleSend}
             disabled={!name.trim()}
             aria-label="Enviar item"
             className={`w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 transition-all shadow-md ${
@@ -255,7 +266,7 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
           >
             <SendHorizontal className="w-5 h-5 stroke-[2.5] translate-x-0.5" />
           </button>
-        </form>
+        </div>
       </div>
     </div>
   );

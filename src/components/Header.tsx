@@ -18,7 +18,12 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAuth,
 }) => {
   return (
-    <header className="w-full flex-shrink-0 z-30 apple-blur-nav transition-all">
+    <header
+      style={{
+        paddingTop: 'env(safe-area-inset-top, 0px)',
+      }}
+      className="w-full flex-shrink-0 z-30 apple-blur-nav transition-all"
+    >
       <div className="max-w-3xl mx-auto px-3.5 h-14 flex items-center justify-between gap-2">
         {/* Brand & Active List */}
         <div className="flex items-center gap-2.5 min-w-0 flex-1">

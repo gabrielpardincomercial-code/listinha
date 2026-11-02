@@ -65,6 +65,7 @@ export const App: React.FC = () => {
 
   const [filterMode, setFilterMode] = useState<'all' | 'pending' | 'completed' | 'my_items'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'order' | 'categories'>('categories');
   const [isAddingMode, setIsAddingMode] = useState(false);
 
@@ -74,9 +75,14 @@ export const App: React.FC = () => {
   const [isNewListModalOpen, setIsNewListModalOpen] = useState(false);
 
   // Track exact visualViewport height & offsetTop so the app shell stays locked to the screen above the keyboard (WhatsApp-style, zero jiggle on scroll)
-  const [viewportBox, setViewportBox] = useState<{ top: number; height: number | null }>({
+  const [viewportBox, setViewportBox] = useState<{
+    top: number;
+    height: number | null;
+    isKeyboardOpen: boolean;
+  }>({
     top: 0,
     height: null,
+    isKeyboardOpen: false,
   });
   const mainScrollRef = useRef<HTMLElement>(null);
 
@@ -84,9 +90,11 @@ export const App: React.FC = () => {
     if (typeof window === 'undefined' || !window.visualViewport) return;
     const vv = window.visualViewport;
     const syncViewport = () => {
+      const kbOpen = window.innerHeight - vv.height > 110;
       setViewportBox({
         top: Math.max(0, Math.round(vv.offsetTop)),
         height: Math.round(vv.height),
+        isKeyboardOpen: kbOpen,
       });
     };
     vv.addEventListener('resize', syncViewport);
@@ -633,25 +641,40 @@ export const App: React.FC = () => {
               onClearCompleted={handleClearCompleted}
             />
 
-            <div className="relative mb-3">
-              <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-2.5" />
-              <input
-                type="text"
-                placeholder="Buscar item..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-14 py-2 rounded-2xl bg-white/[0.04] border border-white/10 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-all"
-              />
-              {searchQuery && (
+            {isSearchOpen ? (
+              <div className="relative mb-3">
+                <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-2.5" />
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="Buscar item..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-16 py-2 rounded-2xl bg-white/[0.04] border border-white/10 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-all"
+                />
                 <button
                   type="button"
-                  onClick={() => setSearchQuery('')}
+                  onClick={() => {
+                    setSearchQuery('');
+                    setIsSearchOpen(false);
+                  }}
                   className="absolute right-3 top-2 text-xs text-slate-400 hover:text-white"
                 >
-                  Limpar
+                  Fechar
                 </button>
-              )}
-            </div>
+              </div>
+            ) : (
+              currentListItems.length > 3 && (
+                <button
+                  type="button"
+                  onClick={() => setIsSearchOpen(true)}
+                  className="w-full mb-3 px-3.5 py-2 rounded-2xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/10 text-xs text-slate-400 flex items-center gap-2 transition-all"
+                >
+                  <Search className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Buscar item na lista...</span>
+                </button>
+              )
+            )}
           </>
         )}
 
@@ -762,6 +785,7 @@ export const App: React.FC = () => {
         currentList={currentList}
         currentUser={currentUser}
         onAddingModeChange={handleAddingModeChange}
+        isKeyboardOpen={viewportBox.isKeyboardOpen}
       />
 
       <ShareModal
