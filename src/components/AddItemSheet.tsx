@@ -176,12 +176,12 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
           ? '6px'
           : 'calc(env(safe-area-inset-bottom, 0px) + 8px)',
       }}
-      className="w-full flex-shrink-0 bg-[#0b0f19] border-t border-white/15 pt-2 px-2.5 z-40"
+      className="w-full flex-shrink-0 composer-bar-bg bg-[#0b0f19] border-t border-white/15 pt-2 px-2.5 z-40"
     >
       <div className="max-w-3xl mx-auto">
         <div className="flex items-center gap-2">
           {/* Unified Pill: [Item Text Input] + [- Quantity/Unit +] */}
-          <div className="flex-1 flex items-center bg-[#161c2a] border border-white/15 focus-within:border-blue-500/80 rounded-full pl-4 pr-1.5 py-1 shadow-inner min-w-0">
+          <div className="flex-1 flex items-center composer-pill-bg bg-[#161c2a] border border-white/15 focus-within:border-blue-500/80 rounded-full pl-3.5 pr-1.5 py-1 shadow-inner min-w-0">
             <input
               ref={inputRef}
               type="text"
@@ -202,11 +202,11 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
                 }
               }}
               onChange={(e) => setName(e.target.value)}
-              className="flex-1 bg-transparent text-white placeholder-slate-400 text-sm font-medium focus:outline-none min-w-0 py-1.5"
+              className="flex-1 bg-transparent text-theme-primary text-white placeholder-slate-400 text-sm font-medium focus:outline-none min-w-0 py-1.5"
             />
 
             {/* Inline Quantity & Unit Switcher */}
-            <div className="flex items-center gap-0.5 bg-black/50 border border-white/10 rounded-full px-1 py-0.5 ml-1.5 flex-shrink-0">
+            <div className="flex items-center gap-0.5 surface-subtle bg-black/50 border border-white/10 rounded-full px-1 py-0.5 ml-1.5 flex-shrink-0">
               <button
                 type="button"
                 tabIndex={-1}
@@ -217,7 +217,7 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
                   (quantityType === 'unit' && quantity <= 1) ||
                   (quantityType === 'weight' && quantity <= 100)
                 }
-                className="w-7 h-7 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 disabled:opacity-30 active:scale-90 transition-all"
+                className="w-7 h-7 rounded-full flex items-center justify-center text-theme-primary text-slate-300 hover:bg-white/10 disabled:opacity-30 active:scale-90 transition-all"
                 aria-label="Diminuir"
               >
                 <Minus className="w-3.5 h-3.5" />
@@ -230,7 +230,7 @@ export const AddItemSheet: React.FC<AddItemSheetProps> = ({
                 onMouseDown={keepKeyboardOpen}
                 onClick={toggleQuantityMode}
                 title="Toque para trocar entre un, 100g, 500g e 1kg"
-                className="px-2 py-0.5 rounded-full bg-blue-500/15 border border-blue-500/30 text-xs font-extrabold text-blue-300 active:scale-95 tabular-nums whitespace-nowrap"
+                className="px-2 py-0.5 rounded-full bg-blue-600/15 border border-blue-500/30 text-xs font-extrabold text-blue-500 active:scale-95 tabular-nums whitespace-nowrap"
               >
                 {formattedQuantity}
               </button>

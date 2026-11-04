@@ -43,16 +43,16 @@ export const CategoryGroup: React.FC<CategoryGroupProps> = ({
         }}
         className="w-full flex items-center justify-between py-2 px-1 text-left group"
       >
-        <div className="flex items-center gap-2">
-          <span className="text-lg">{category.icon}</span>
-          <span className="text-sm font-bold text-slate-200 tracking-tight group-hover:text-white transition-colors">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-lg flex-shrink-0">{category.icon}</span>
+          <span className="text-sm font-bold text-theme-primary text-slate-200 tracking-tight truncate">
             {category.name}
           </span>
           <span
-            className={`text-xs px-2 py-0.5 rounded-full font-semibold tabular-nums border ${
+            className={`text-xs px-2 py-0.5 rounded-full font-semibold tabular-nums border flex-shrink-0 ${
               isGroupAllDone
-                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                : 'bg-white/10 text-slate-400 border-white/10'
+                ? 'bg-emerald-500/15 text-emerald-500 border-emerald-500/30'
+                : 'surface-subtle bg-white/10 text-theme-secondary text-slate-400 border-white/10'
             }`}
           >
             {completedCount}/{items.length}

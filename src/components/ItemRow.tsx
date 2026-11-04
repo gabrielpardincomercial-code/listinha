@@ -38,14 +38,14 @@ export const ItemRow: React.FC<ItemRowProps> = ({
 
   return (
     <div
-      className={`group relative flex items-center justify-between gap-3 p-3.5 sm:p-4 rounded-2xl transition-all duration-200 border ${
+      className={`group relative flex items-center justify-between gap-2.5 p-3 sm:p-3.5 rounded-2xl transition-all duration-200 border ${
         item.completed
-          ? 'bg-white/[0.02] border-white/5 opacity-65'
-          : 'bg-white/[0.05] hover:bg-white/[0.08] border-white/10 shadow-glass-sm'
+          ? 'item-row-completed bg-white/[0.02] border-white/5 opacity-65'
+          : 'item-row-card bg-white/[0.05] hover:bg-white/[0.08] border-white/10 shadow-glass-sm'
       }`}
     >
       {/* Left: Apple circular checkbox & details */}
-      <div className="flex items-center gap-3.5 min-w-0 flex-1">
+      <div className="flex items-center gap-3 min-w-0 flex-1">
         {/* Apple Checkbox */}
         <button
           type="button"
@@ -53,7 +53,7 @@ export const ItemRow: React.FC<ItemRowProps> = ({
           className={`w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90 flex-shrink-0 ${
             item.completed
               ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30 scale-100 animate-check-bounce'
-              : 'border-2 border-white/30 hover:border-blue-400 bg-white/5'
+              : 'border-2 border-slate-400/50 hover:border-blue-400 bg-white/5'
           }`}
           aria-label={item.completed ? 'Marcar como não pego' : 'Marcar como pego'}
         >
@@ -62,12 +62,12 @@ export const ItemRow: React.FC<ItemRowProps> = ({
 
         {/* Text Details */}
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <span
-              className={`text-sm sm:text-base font-medium transition-all truncate ${
+              className={`text-sm sm:text-base font-semibold transition-all break-words ${
                 item.completed
                   ? 'line-through text-slate-400'
-                  : 'text-white'
+                  : 'text-theme-primary text-white'
               }`}
             >
               {item.name}
@@ -75,10 +75,10 @@ export const ItemRow: React.FC<ItemRowProps> = ({
 
             {/* Quantity Pill */}
             <span
-              className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-semibold tabular-nums ${
+              className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-bold tabular-nums whitespace-nowrap flex-shrink-0 ${
                 item.completed
                   ? 'bg-white/5 text-slate-400'
-                  : 'bg-blue-500/15 text-blue-300 border border-blue-500/25'
+                  : 'bg-blue-500/15 text-blue-500 border border-blue-500/25'
               }`}
             >
               {formatQuantityDisplay(item)}
@@ -86,9 +86,9 @@ export const ItemRow: React.FC<ItemRowProps> = ({
           </div>
 
           {/* Subtitle meta: Category & Assignment / Checked By */}
-          <div className="flex items-center gap-2 mt-1 text-xs text-slate-400 flex-wrap">
+          <div className="flex items-center gap-2 mt-0.5 text-xs text-theme-secondary text-slate-400 flex-wrap">
             {/* Category tag */}
-            <span className="inline-flex items-center gap-1 text-[11px] text-slate-400">
+            <span className="inline-flex items-center gap-1 text-[11px] text-theme-secondary text-slate-400 whitespace-nowrap">
               <span>{category.icon}</span>
               <span>{category.name}</span>
             </span>
@@ -131,13 +131,13 @@ export const ItemRow: React.FC<ItemRowProps> = ({
       </div>
 
       {/* Right: Quick In-Row Stepper (+ / -) & Delete */}
-      <div className="flex items-center gap-1.5 flex-shrink-0">
+      <div className="flex items-center gap-1 flex-shrink-0">
         {!item.completed && (
-          <div className="flex items-center bg-black/40 rounded-xl border border-white/10 p-0.5">
+          <div className="flex items-center surface-subtle bg-black/40 rounded-xl border border-white/10 p-0.5">
             <button
               type="button"
               onClick={() => onUpdateQuantity(item.id, -1)}
-              className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/10 active:scale-95 transition-all"
+              className="w-7 h-7 flex items-center justify-center rounded-lg text-theme-secondary text-slate-400 hover:text-blue-500 active:scale-95 transition-all"
               title="Diminuir quantidade"
             >
               <Minus className="w-3.5 h-3.5" />
@@ -145,7 +145,7 @@ export const ItemRow: React.FC<ItemRowProps> = ({
             <button
               type="button"
               onClick={() => onUpdateQuantity(item.id, 1)}
-              className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/10 active:scale-95 transition-all"
+              className="w-7 h-7 flex items-center justify-center rounded-lg text-theme-secondary text-slate-400 hover:text-blue-500 active:scale-95 transition-all"
               title="Aumentar quantidade"
             >
               <Plus className="w-3.5 h-3.5" />

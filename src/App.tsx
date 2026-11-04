@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import confetti from 'canvas-confetti';
-import { Plus, Search, Share2, Layers, ListOrdered } from 'lucide-react';
+import { Plus, Search, Share2, Layers, ListOrdered, Trash2 } from 'lucide-react';
 import { ListItem, ShoppingList, SyncStatus, User } from './types';
 import {
   getStoredUser,
@@ -18,13 +18,13 @@ import { CATEGORIES, detectSmartCategory } from './utils/categories';
 import { sound } from './utils/audio';
 
 import { Header } from './components/Header';
-import { ListTabs } from './components/ListTabs';
+import { ListTabs, truncateText } from './components/ListTabs';
 import { SummaryStats } from './components/SummaryStats';
 import { CategoryGroup } from './components/CategoryGroup';
 import { ItemRow } from './components/ItemRow';
 import { AddItemSheet } from './components/AddItemSheet';
 import { ShareModal } from './components/ShareModal';
-import { GoogleAuthModal } from './components/GoogleAuthModal';
+import { GoogleAuthModal, AppTheme, AppFontScale } from './components/GoogleAuthModal';
 import { NewListModal } from './components/NewListModal';
 import { LoginScreen } from './components/LoginScreen';
 import { BrandLogo } from './components/BrandLogo';
@@ -74,6 +74,48 @@ export const App: React.FC = () => {
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isNewListModalOpen, setIsNewListModalOpen] = useState(false);
+
+  // Theme (dark | light) & Accessibility Font Scale (normal | large | xlarge)
+  const [theme, setTheme] = useState<AppTheme>(() => {
+    try {
+      return (localStorage.getItem('listinha_theme') as AppTheme) || 'dark';
+    } catch {
+      return 'dark';
+    }
+  });
+
+  const [fontScale, setFontScale] = useState<AppFontScale>(() => {
+    try {
+      return (localStorage.getItem('listinha_font_scale') as AppFontScale) || 'normal';
+    } catch {
+      return 'normal';
+    }
+  });
+
+  useEffect(() => {
+    const html = document.documentElement;
+    if (theme === 'light') {
+      html.classList.add('theme-light');
+    } else {
+      html.classList.remove('theme-light');
+    }
+    try {
+      localStorage.setItem('listinha_theme', theme);
+    } catch {}
+  }, [theme]);
+
+  useEffect(() => {
+    const html = document.documentElement;
+    html.classList.remove('font-large', 'font-xlarge');
+    if (fontScale === 'large') {
+      html.classList.add('font-large');
+    } else if (fontScale === 'xlarge') {
+      html.classList.add('font-xlarge');
+    }
+    try {
+      localStorage.setItem('listinha_font_scale', fontScale);
+    } catch {}
+  }, [fontScale]);
 
   // Track exact visualViewport height & offsetTop so the app shell stays locked to the screen above the keyboard (WhatsApp-style, zero jiggle on scroll)
   const [viewportBox, setViewportBox] = useState<{
@@ -577,7 +619,7 @@ export const App: React.FC = () => {
         right: 0,
         height: viewportBox.height ? `${viewportBox.height}px` : '100dvh',
       }}
-      className="bg-[#07090e] text-slate-100 flex flex-col overflow-hidden selection:bg-blue-600/30"
+      className="app-shell-bg bg-[#07090e] text-slate-100 flex flex-col overflow-hidden selection:bg-blue-600/30"
     >
       {/* Top Fixed Header */}
       <Header
@@ -592,31 +634,30 @@ export const App: React.FC = () => {
       {/* Middle Scrollable Container (scrolling here NEVER moves the bottom bar!) */}
       <main
         ref={mainScrollRef}
-        className="max-w-3xl w-full mx-auto px-3.5 pt-2.5 pb-6 flex-1 overflow-y-auto overscroll-contain"
+        className="max-w-3xl w-full mx-auto px-3.5 pt-2 pb-6 flex-1 overflow-y-auto overscroll-contain"
       >
-        {/* List Selector Tabs + Delete List button */}
-        <div className="mb-2.5">
+        {/* List Selector Bar: Active List + (+) New List + Ver todas submenu */}
+        <div className="mb-2">
           <ListTabs
             lists={lists}
             activeListId={currentList.id}
             onSelectList={setActiveListId}
             onOpenNewListModal={() => setIsNewListModalOpen(true)}
-            onDeleteList={handleDeleteList}
           />
         </div>
 
-        {/* Hide bulky banners while actively typing so newly added items stay right at the top */}
+        {/* Hide filter bar while actively typing so newly added items stay right at the top */}
         {!isAddingMode && (
           <>
             {currentList.type === 'temporary' && currentList.eventDetails && (
-              <div className="mb-3 p-3 bg-gradient-to-r from-purple-900/30 to-indigo-900/30 rounded-2xl border border-purple-500/20 backdrop-blur-md flex items-center justify-between gap-2">
+              <div className="mb-2.5 p-2.5 bg-gradient-to-r from-purple-900/30 to-indigo-900/30 rounded-2xl border border-purple-500/20 backdrop-blur-md flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-xl flex-shrink-0">🎉</span>
+                  <span className="text-lg flex-shrink-0">🎉</span>
                   <div className="min-w-0">
-                    <span className="text-xs font-bold text-purple-200 block truncate">
-                      Evento com Divisão de Tarefas
+                    <span className="text-xs font-bold text-purple-300 block truncate">
+                      {truncateText(currentList.title, 22)}
                     </span>
-                    <span className="text-[11px] text-purple-300/80 block truncate">
+                    <span className="text-[10px] text-purple-300/80 block truncate">
                       {currentList.eventDetails.date} • {currentList.eventDetails.location}
                     </span>
                   </div>
@@ -643,7 +684,7 @@ export const App: React.FC = () => {
             />
 
             {isSearchOpen ? (
-              <div className="relative mb-3">
+              <div className="relative mb-2.5">
                 <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-2.5" />
                 <input
                   type="text"
@@ -651,7 +692,7 @@ export const App: React.FC = () => {
                   placeholder="Buscar item..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-16 py-2 rounded-2xl bg-white/[0.04] border border-white/10 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-all"
+                  className="w-full pl-10 pr-16 py-2 rounded-2xl surface-subtle bg-white/[0.04] border border-white/10 text-xs sm:text-sm text-theme-primary text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-all"
                 />
                 <button
                   type="button"
@@ -669,10 +710,10 @@ export const App: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsSearchOpen(true)}
-                  className="w-full mb-3 px-3.5 py-2 rounded-2xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/10 text-xs text-slate-400 flex items-center gap-2 transition-all"
+                  className="w-full mb-2.5 px-3.5 py-2 rounded-2xl surface-subtle bg-white/[0.03] hover:bg-white/[0.06] border border-white/10 text-xs text-theme-secondary text-slate-400 flex items-center gap-2 transition-all"
                 >
-                  <Search className="w-3.5 h-3.5 text-slate-500" />
-                  <span>Buscar item na lista...</span>
+                  <Search className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                  <span className="truncate">Buscar item na lista...</span>
                 </button>
               )
             )}
@@ -681,7 +722,7 @@ export const App: React.FC = () => {
 
         {/* Clean 2-Button Segmented Switch: Ordem de Adição vs Por Categoria */}
         {currentListItems.length > 0 && (
-          <div className="grid grid-cols-2 gap-1 p-1 mb-3 rounded-2xl bg-white/[0.04] border border-white/10">
+          <div className="grid grid-cols-2 gap-1 p-1 mb-3 rounded-2xl surface-subtle bg-white/[0.04] border border-white/10">
             <button
               type="button"
               onClick={() => {
@@ -691,11 +732,11 @@ export const App: React.FC = () => {
               className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
                 viewMode === 'order'
                   ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/30'
-                  : 'text-slate-400 hover:text-white'
+                  : 'text-theme-secondary text-slate-400'
               }`}
             >
               <ListOrdered className="w-3.5 h-3.5 flex-shrink-0" />
-              <span>Ordem de Adição</span>
+              <span className="truncate">Ordem de Adição</span>
             </button>
 
             <button
@@ -708,11 +749,11 @@ export const App: React.FC = () => {
               className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
                 viewMode === 'categories'
                   ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/30'
-                  : 'text-slate-400 hover:text-white'
+                  : 'text-theme-secondary text-slate-400'
               }`}
             >
               <Layers className="w-3.5 h-3.5 flex-shrink-0" />
-              <span>Por Categoria</span>
+              <span className="truncate">Por Categoria</span>
             </button>
           </div>
         )}
@@ -752,14 +793,14 @@ export const App: React.FC = () => {
             </div>
           )
         ) : (
-          <div className="py-10 px-4 text-center rounded-3xl bg-white/[0.02] border border-white/5 my-3">
+          <div className="py-8 px-4 text-center rounded-3xl glass-card my-2">
             <div className="mx-auto flex items-center justify-center mb-3">
               <BrandLogo size="md" />
             </div>
-            <h3 className="text-sm sm:text-base font-bold text-white mb-1">
+            <h3 className="text-sm sm:text-base font-bold text-theme-primary text-white mb-1">
               {searchQuery ? 'Nenhum item encontrado' : 'Sua lista está limpa e vazia'}
             </h3>
-            <p className="text-xs text-slate-400 max-w-xs mx-auto mb-4">
+            <p className="text-xs text-theme-secondary text-slate-400 max-w-xs mx-auto mb-4">
               {searchQuery
                 ? `Não encontramos resultados para "${searchQuery}".`
                 : 'Digite o item na barra abaixo, ajuste a quantidade e toque na setinha para enviar!'}
@@ -776,9 +817,32 @@ export const App: React.FC = () => {
             )}
           </div>
         )}
+
+        {/* Delete Current List Option INSIDE the list itself (bottom of list) */}
+        {!isAddingMode && (
+          <div className="mt-6 pt-4 border-t border-white/10 flex justify-center">
+            <button
+              type="button"
+              onClick={() => {
+                sound.playStep();
+                if (
+                  window.confirm(
+                    `Deseja excluir a lista "${currentList.title}" e todos os itens dela?`
+                  )
+                ) {
+                  handleDeleteList(currentList.id);
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 text-xs font-semibold transition-all active:scale-95"
+            >
+              <Trash2 className="w-3.5 h-3.5 flex-shrink-0" />
+              <span>Excluir esta lista ({truncateText(currentList.title, 16)})</span>
+            </button>
+          </div>
+        )}
       </main>
 
-      {/* Bottom Docked WhatsApp Bar (glued to bottom / keyboard, never moves on scroll) */}
+      {/* Bottom Docked WhatsApp Bar */}
       <AddItemSheet
         isOpen={isAddSheetOpen}
         onClose={() => setIsAddSheetOpen(false)}
@@ -804,6 +868,10 @@ export const App: React.FC = () => {
         currentList={currentList}
         onLogout={handleLogout}
         onAddFamilyMember={handleAddFamilyMember}
+        theme={theme}
+        onThemeChange={setTheme}
+        fontScale={fontScale}
+        onFontScaleChange={setFontScale}
       />
 
       <NewListModal

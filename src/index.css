@@ -10,6 +10,18 @@
     --sal: env(safe-area-inset-left, 0px);
   }
 
+  html {
+    font-size: 16px;
+  }
+
+  html.font-large {
+    font-size: 18px;
+  }
+
+  html.font-xlarge {
+    font-size: 20px;
+  }
+
   body {
     @apply bg-[#07090e] text-slate-100 font-sans antialiased;
     padding-top: var(--sat);
@@ -19,33 +31,13 @@
   }
 }
 
-/* Apple Liquid Glass Utility Classes */
+/* Apple Liquid Glass Utility Classes (Dark Default) */
 .glass-panel {
-  background: rgba(18, 24, 38, 0.72);
+  background: rgba(18, 24, 38, 0.78);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.35);
-}
-
-.glass-panel-light {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 8px 24px 0 rgba(0, 0, 0, 0.06);
-}
-
-.glass-pill {
-  background: rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-}
-
-.glass-pill:hover {
-  background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.22);
 }
 
 .glass-card {
@@ -56,18 +48,72 @@
   box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.3);
 }
 
-.glass-card-hover {
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.glass-card-hover:active {
-  transform: scale(0.985);
-}
-
 .apple-blur-nav {
-  background: rgba(10, 14, 23, 0.82);
+  background: rgba(10, 14, 23, 0.88);
   backdrop-filter: blur(24px) saturate(190%);
   -webkit-backdrop-filter: blur(24px) saturate(190%);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* =========================================================
+   LIGHT THEME OVERRIDES (Apple iOS Light Mode #F2F2F7)
+   ========================================================= */
+html.theme-light body,
+html.theme-light .app-shell-bg {
+  background-color: #f2f2f7 !important;
+  color: #0f172a !important;
+}
+
+html.theme-light .apple-blur-nav {
+  background: rgba(255, 255, 255, 0.9) !important;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08) !important;
+}
+
+html.theme-light .glass-card,
+html.theme-light .glass-panel {
+  background: #ffffff !important;
+  border-color: rgba(15, 23, 42, 0.1) !important;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06) !important;
+}
+
+html.theme-light .composer-bar-bg {
+  background-color: #ffffff !important;
+  border-top: 1px solid rgba(15, 23, 42, 0.12) !important;
+}
+
+html.theme-light .composer-pill-bg {
+  background-color: #f1f5f9 !important;
+  border-color: rgba(15, 23, 42, 0.15) !important;
+}
+
+html.theme-light .modal-surface-bg {
+  background-color: #ffffff !important;
+  border-color: rgba(15, 23, 42, 0.12) !important;
+  color: #0f172a !important;
+}
+
+html.theme-light .item-row-card {
+  background-color: #ffffff !important;
+  border-color: rgba(15, 23, 42, 0.1) !important;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04) !important;
+}
+
+html.theme-light .item-row-completed {
+  background-color: rgba(255, 255, 255, 0.6) !important;
+  border-color: rgba(15, 23, 42, 0.06) !important;
+}
+
+html.theme-light .surface-subtle {
+  background-color: #e2e8f0 !important;
+  border-color: rgba(15, 23, 42, 0.1) !important;
+}
+
+html.theme-light .text-theme-primary {
+  color: #0f172a !important;
+}
+
+html.theme-light .text-theme-secondary {
+  color: #475569 !important;
 }
 
 /* iOS bouncy checkmark animation */

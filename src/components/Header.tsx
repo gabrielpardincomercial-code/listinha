@@ -1,5 +1,5 @@
 import React from 'react';
-import { Share2, Radio } from 'lucide-react';
+import { Share2 } from 'lucide-react';
 import { ShoppingList, SyncStatus, User } from '../types';
 import { BrandLogo } from './BrandLogo';
 
@@ -12,12 +12,20 @@ interface HeaderProps {
   onOpenNewList: () => void;
 }
 
+function getUserInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return 'U';
+  if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 export const Header: React.FC<HeaderProps> = ({
-  currentList,
   currentUser,
   onOpenShare,
   onOpenAuth,
 }) => {
+  const initials = getUserInitials(currentUser.name);
+
   return (
     <header
       style={{
@@ -25,59 +33,30 @@ export const Header: React.FC<HeaderProps> = ({
       }}
       className="w-full flex-shrink-0 z-30 apple-blur-nav transition-all"
     >
-      <div className="max-w-3xl mx-auto px-3.5 h-14 flex items-center justify-between gap-2">
-        {/* Brand & Active List */}
-        <div className="flex items-center gap-2.5 min-w-0 flex-1">
-          <BrandLogo size="sm" showBadge />
+      <div className="max-w-3xl mx-auto px-3.5 h-13 py-1.5 flex items-center justify-between gap-2">
+        {/* Left: ONLY the Cart Icon with Online Green Dot */}
+        <BrandLogo size="sm" showBadge />
 
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <h1 className="text-sm sm:text-base font-bold text-white tracking-tight truncate">
-                Listinha
-              </h1>
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-blue-500/15 text-blue-400 border border-blue-500/20 flex-shrink-0 whitespace-nowrap">
-                <Radio className="w-2.5 h-2.5 animate-pulse text-emerald-400" />
-                Online
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400 truncate flex items-center gap-1">
-              <span>{currentList.emoji}</span>
-              <span className="font-medium text-slate-300 truncate">{currentList.title}</span>
-              {currentList.collaborators.length > 1 && (
-                <span className="text-[10px] text-slate-500 font-normal flex-shrink-0">
-                  • {currentList.collaborators.length}p
-                </span>
-              )}
-            </p>
-          </div>
-        </div>
-
-        {/* Right side controls: Share & Profile */}
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+        {/* Right: Share Icon Only + User Initials Only */}
+        <div className="flex items-center gap-2 flex-shrink-0">
           <button
             type="button"
             onClick={onOpenShare}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] active:scale-95 text-slate-200 hover:text-white border border-white/10 text-xs font-semibold transition-all shadow-sm whitespace-nowrap"
+            className="w-9 h-9 rounded-full surface-subtle bg-white/[0.08] hover:bg-white/[0.15] active:scale-95 flex items-center justify-center border border-white/10 transition-all"
             title="Compartilhar lista"
+            aria-label="Compartilhar lista"
           >
-            <Share2 className="w-3.5 h-3.5 text-blue-400" />
-            <span className="hidden sm:inline">Compartilhar</span>
+            <Share2 className="w-4 h-4 text-blue-500" />
           </button>
 
           <button
             type="button"
             onClick={onOpenAuth}
-            className="relative flex items-center gap-1.5 p-1 pr-2 rounded-full bg-white/[0.06] hover:bg-white/[0.12] active:scale-95 border border-white/10 transition-all"
-            title={`Conectado como ${currentUser.name}`}
+            className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:scale-95 text-white font-extrabold text-xs flex items-center justify-center shadow-sm border border-white/20 transition-all tracking-tight"
+            title={`Menu de ${currentUser.name}`}
+            aria-label="Abrir menu da conta e aparência"
           >
-            <img
-              src={currentUser.avatar}
-              alt={currentUser.name}
-              className="w-6 h-6 rounded-full object-cover ring-1 ring-white/20 flex-shrink-0"
-            />
-            <span className="text-xs font-medium text-slate-200 max-w-[70px] sm:max-w-[110px] truncate">
-              {currentUser.name.split(' ')[0]}
-            </span>
+            {initials}
           </button>
         </div>
       </div>
